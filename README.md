@@ -2,6 +2,68 @@
 
 An intelligent WhatsApp chatbot that guides users through the GST Nil filing process step-by-step.
 
+## Project Structure
+```
+NilEasy/
+│
+├── app/
+│   ├── main.py
+│   │
+│   ├── api/
+│   │   └── webhook.py
+│   │
+│   ├── flow/
+│   │   ├── states.py
+│   │   ├── dispatcher.py
+│   │   └── handlers/
+│   │       ├── welcome.py
+│   │       ├── gstin.py
+│   │       ├── captcha.py
+│   │       ├── gst_type.py
+│   │       ├── duration.py
+│   │       ├── sms.py
+│   │       ├── otp.py
+│   │       └── completion.py
+│   │
+│   ├── services/
+│   │   ├── user_service.py
+│   │   ├── session_service.py
+│   │   ├── gst_service.py
+│   │   ├── sms_service.py
+│   │   └── filing_service.py
+│   │
+│   ├── models/
+│   │   ├── user.py
+│   │   └── filing_attempt.py
+│   │
+│   ├── schemas/
+│   │   ├── webhook.py
+│   │   └── user.py
+│   │
+│   ├── db/
+│   │   ├── mongo.py
+│   │   └── indexes.py
+│   │
+│   └── core/
+│       ├── config.py
+│       └── logging.py
+│
+├── utils/
+│   ├── whatsapp_utils.py
+│   ├── gst_utils.py
+│   ├── sms_utils.py
+│   ├── validation_utils.py
+│   ├── time_utils.py
+│   └── constants.py
+│
+├── tests/
+│
+├── .env.example
+├── requirements.txt
+└── README.md
+
+```
+
 ## Features
 
 - 🤖 Conversational GST filing via WhatsApp
@@ -27,6 +89,4 @@ This application follows a clean, modular architecture:
 - **Models**: MongoDB document structures
 - **Utils**: Reusable helper functions
 
-## Project Structure
 
-See individual files for detailed documentation.
