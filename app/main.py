@@ -165,7 +165,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Register API routes
+from app.api import otp_callback
+
 app.include_router(webhook.router, prefix=settings.API_PREFIX, tags=["Webhook"])
+app.include_router(otp_callback.router, tags=["OTP Callback"])
 
 
 # Root endpoint

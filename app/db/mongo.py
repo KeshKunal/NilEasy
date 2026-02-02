@@ -1,11 +1,10 @@
 """
 app/db/mongo.py
 
-Purpose: MongoDB connection setup
+Purpose: MongoDB connection setup (Minimal schema)
 
 - Initializes Motor client with connection pooling
-- Exposes database and collections
-- Centralized DB access point
+- Exposes 2 collections: users, filing_attempts
 - Health checks and retry logic
 - Proper connection lifecycle management
 """
@@ -41,38 +40,35 @@ async def connect_to_mongo():
     for attempt in range(1, max_retries + 1):
         try:
             logger.info(
-                f"Attempting to connect to MongoDB (attempt {attempt}/{max_retries})",
-                extra={"mongodb_uri": settings.MONGODB_URI.split("@")[-1]}  # Hide credentials
+                f"Attempting to connect to MongoDB (attempt {attempt}/{max_retries})"
             )
             
+            # Fix URL encoding for special characters
+            mongodb_url = settings.MONGODB_URL.replace("%%", "%25")
+            
             _client = AsyncIOMotorClient(
-                settings.MONGODB_URI,
-                maxPoolSize=settings.MONGODB_MAX_POOL_SIZE,
-                minPoolSize=settings.MONGODB_MIN_POOL_SIZE,
+                mongodb_url,
+                maxPoolSize=50,
+                minPoolSize=10,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=10000,
                 retryWrites=True,
                 retryReads=True,
             )
             
-            _database = _client[settings.DATABASE_NAME]
+            _database = _client[settings.MONGODB_DB_NAME]
             
             # Verify connection
             await _client.admin.command("ping")
             
             logger.info(
-                "Successfully connected to MongoDB",
-                extra={
-                    "database": settings.DATABASE_NAME,
-                    "max_pool_size": settings.MONGODB_MAX_POOL_SIZE
-                }
+                f"✅ Successfully connected to MongoDB: {settings.MONGODB_DB_NAME}"
             )
             return
             
         except (ConnectionFailure, ServerSelectionTimeoutError) as e:
             logger.error(
-                f"Failed to connect to MongoDB (attempt {attempt}/{max_retries})",
-                extra={"error": str(e)}
+                f"Failed to connect to MongoDB (attempt {attempt}/{max_retries}): {e}"
             )
             
             if attempt < max_retries:
@@ -102,6 +98,11 @@ async def close_mongo_connection():
 async def check_database_health() -> bool:
     """
     Performs a health check on the database connection.
+
+
+async def check_database_health() -> bool:
+    """
+    Checks if the database connection is healthy.
     
     Returns:
         True if connection is healthy, False otherwise
@@ -139,10 +140,10 @@ def get_database() -> AsyncIOMotorDatabase:
 
 def get_users_collection():
     """
-    Returns the users collection.
+    Returns the users collection (minimal schema).
     
-    Returns:
-        AsyncIOMotorCollection for users
+    Fields: phone, name, gstin, business_name, gst_type, 
+            current_state, session_data, created_at, last_active
     """
     db = get_database()
     return db["users"]
@@ -150,21 +151,10 @@ def get_users_collection():
 
 def get_filing_attempts_collection():
     """
-    Returns the filing_attempts collection.
+    Returns the filing_attempts collection (minimal schema).
     
-    Returns:
-        AsyncIOMotorCollection for filing attempts
+    Fields: phone, gstin, business_name, period, gst_type,
+            status, arn, created_at, completed_at
     """
     db = get_database()
     return db["filing_attempts"]
-
-
-def get_sessions_collection():
-    """
-    Returns the sessions collection for rate limiting and tracking.
-    
-    Returns:
-        AsyncIOMotorCollection for sessions
-    """
-    db = get_database()
-    return db["sessions"]

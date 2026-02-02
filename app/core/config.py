@@ -24,21 +24,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
     
     # MongoDB
-    MONGODB_URI: str = Field(
+    MONGODB_URL: str = Field(
         default="mongodb://localhost:27017",
         description="MongoDB connection URI"
     )
-    DATABASE_NAME: str = Field(
+    MONGODB_DB_NAME: str = Field(
         default="nileasy",
         description="MongoDB database name"
-    )
-    MONGODB_MAX_POOL_SIZE: int = Field(
-        default=50,
-        description="Maximum MongoDB connection pool size"
-    )
-    MONGODB_MIN_POOL_SIZE: int = Field(
-        default=10,
-        description="Minimum MongoDB connection pool size"
     )
     
     # WhatsApp/AiSensy
@@ -63,6 +55,16 @@ class Settings(BaseSettings):
     GST_SERVICE_TIMEOUT: int = Field(
         default=30,
         description="GST service request timeout in seconds"
+    )
+    
+    # SMS Short Link Service
+    SMS_SHORTLINK_API_URL: str = Field(
+        default="https://sm-snacc.vercel.app",
+        description="SMS short link service URL"
+    )
+    APP_URL: str = Field(
+        default="http://localhost:8000",
+        description="Your FastAPI app base URL (for OTP callback redirects)"
     )
     
     # Session Management

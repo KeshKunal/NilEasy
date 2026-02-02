@@ -1,12 +1,12 @@
 """
 app/flow/handlers/sms.py
 
-Handles: STEP 5 – SMS generation & confirmation
+Handles: STEP 5 – OTP Link generation & delivery
 
-- Generates exact GST SMS content
-- Creates deep link to messaging app
-- Displays warnings not to edit SMS
-- Tracks user confirmation of SMS sent
+- Generates short HTTP link for OTP viewing
+- Sends clickable link in WhatsApp
+- Displays instructions to click link and return
+- Tracks link click analytics
 """
 
 from typing import Dict, Any
@@ -14,6 +14,7 @@ from typing import Dict, Any
 from app.flow.states import ConversationState
 from app.services.session_service import update_user_state, get_session_data
 from app.services.filing_service import get_filing_service, create_filing_attempt, update_filing_status
+from app.services.sms_link_service import sms_link_service
 from utils.constants import (
     MESSAGE_SMS_INSTRUCTIONS,
     WARNING_SMS_EDIT,
@@ -30,16 +31,16 @@ logger = get_logger(__name__)
 
 async def handle_sms_generation(user_id: str) -> Dict[str, Any]:
     """
-    Generates SMS content and deep link for user.
+    Generates OTP link and sends it to user via WhatsApp.
     
     Args:
-        user_id: User ID
+        user_id: User ID (phone number)
     
     Returns:
-        Response dict with SMS instructions
+        Response dict with link message
     """
     with LogContext(user_id=user_id, state="SMS_GENERATION"):
-        logger.info("Generating SMS for filing")
+        logger.info("Generating OTP link for filing")
         
         try:
             # Get session data
@@ -47,9 +48,10 @@ async def handle_sms_generation(user_id: str) -> Dict[str, Any]:
             gstin = session_data.get("gstin")
             gst_type = session_data.get("gst_type")
             period = session_data.get("period")
+            phone = user_id  # User ID is the phone number
             
             if not all([gstin, gst_type, period]):
-                logger.error("Missing required data for SMS generation")
+                logger.error("Missing required data for OTP link generation")
                 return {
                     "status": "error",
                     "message": create_text_message(
@@ -67,82 +69,78 @@ async def handle_sms_generation(user_id: str) -> Dict[str, Any]:
                 period=period
             )
             
-            # Generate SMS instructions
-            sms_data = format_sms_instructions(
+            # TODO: Call your GST service to initiate filing and get OTP
+            # For now, using placeholder OTP
+            # In production, call: otp = await gst_service.initiate_filing(gstin, gst_type, period)
+            otp = "123456"  # Replace with actual OTP from GST service
+            
+            # Generate short link for OTP viewing
+            link_result = await sms_link_service.create_otp_link(
+                phone=phone,
+                otp=otp,
                 gstin=gstin,
                 gst_type=gst_type,
                 period=period,
-                phone_number=get_gst_portal_number()
+                expiry_minutes=10
             )
             
-            # Update state
+            if not link_result["success"]:
+                logger.error(f"Failed to create OTP link: {link_result.get('error')}")
+                return {
+                    "status": "error",
+                    "message": create_text_message(
+                        "❌ Failed to generate OTP link. Please try again."
+                    ),
+                    "error": link_result.get("error")
+                }
+            
+            # Save link data to session
             await update_user_state(
                 user_id,
                 ConversationState.SMS_GENERATION,
-                validate_transition=True
+                validate_transition=True,
+                extra_data={
+                    "otp_link": link_result["short_url"],
+                    "otp_short_code": link_result["short_code"],
+                    "otp_expires_at": link_result["expires_at"],
+                    "otp_value": otp  # Store for verification
+                }
             )
             
-            # Send instructions
+            # Send the link message (pre-formatted from service)
             yield {
                 "status": "success",
-                "message": create_text_message(MESSAGE_SMS_INSTRUCTIONS)
+                "message": create_text_message(link_result["display_message"])
             }
             
-            # Send formatted SMS with deep link
-            sms_message = f"""📱 *Send this SMS to {sms_data['phone_number']}:*
-
-```{sms_data['sms_content']}```
-
-👇 Tap the button below to open your SMS app with this message pre-filled."""
-            
-            yield {
-                "status": "success",
-                "message": create_button_message(
-                    text=sms_message,
-                    buttons=[
-                        {
-                            "id": "open_sms",
-                            "title": "📲 Open SMS App",
-                            "url": sms_data["deep_link"]
-                        }
-                    ]
-                )
-            }
-            
-            # Send warning
-            yield {
-                "status": "success",
-                "message": create_text_message(WARNING_SMS_EDIT)
-            }
-            
-            # Update state to awaiting SMS confirmation
+            # Update state to awaiting OTP
             await update_user_state(
                 user_id,
-                ConversationState.AWAITING_SMS_SENT,
+                ConversationState.AWAITING_OTP,
                 validate_transition=True
             )
             
-            # Ask for confirmation
+            # Ask for OTP after user clicks link
             yield {
                 "status": "success",
                 "message": create_button_message(
-                    text=ASK_SMS_SENT_CONFIRMATION,
+                    text="After clicking the link and viewing your OTP, send it back to me here:",
                     buttons=[
-                        {"id": "sms_sent_yes", "title": BUTTON_SMS_SENT},
-                        {"id": "sms_help", "title": BUTTON_SMS_HELP}
+                        {"id": "saw_otp_yes", "title": "✅ I saw the OTP"},
+                        {"id": "link_issue", "title": "❌ Link not working"}
                     ]
                 ),
-                "next_state": ConversationState.AWAITING_SMS_SENT.value
+                "next_state": ConversationState.AWAITING_OTP.value
             }
             
-            logger.info("SMS instructions sent successfully")
+            logger.info(f"OTP link sent successfully: {link_result['short_url']}")
             
         except Exception as e:
-            logger.error(f"Error generating SMS: {str(e)}", exc_info=True)
+            logger.error(f"Error generating OTP link: {str(e)}", exc_info=True)
             return {
                 "status": "error",
                 "message": create_text_message(
-                    f"❌ Error generating SMS: {str(e)}\n\nPlease try again."
+                    f"❌ Error generating OTP link: {str(e)}\n\nPlease try again."
                 ),
                 "error": str(e)
             }
