@@ -3,215 +3,290 @@ app/flow/handlers/captcha.py
 
 Handles: STEP 2 – Captcha & GST detail verification
 
-- Calls GST services using GSTIN + captcha
-- Displays extracted business details
-- Handles user confirmation or rejection
-- Rolls back to GSTIN step if rejected
+- Verifies captcha with GST portal
+- Fetches and displays business details
+- Handles user confirmation
+- Moves to GST type selection
 """
 
 from typing import Dict, Any
+from datetime import datetime
 
 from app.flow.states import ConversationState
-from app.services.session_service import (
-    update_user_state,
-    get_session_data,
-    save_session_data,
-    increment_retry_count,
-    reset_retry_count
-)
-from app.services.user_service import update_user_gstin, update_business_details
-from app.services.gst_service import get_gst_service
-from utils.validation_utils import validate_captcha, sanitize_input
-from utils.constants import (
-    MESSAGE_VERIFYING_GSTIN,
-    MESSAGE_GSTIN_VERIFIED,
-    ASK_CONFIRM_DETAILS,
-    ERROR_INVALID_CAPTCHA,
-    ERROR_MAX_RETRIES,
-    BUTTON_CONFIRM,
-    BUTTON_RETRY
-)
-from utils.whatsapp_utils import create_text_message, create_button_message
-from app.core.logging import get_logger, LogContext
+from app.db.mongo import get_users_collection
+from app.services.gst_service import get_gst_service, GSTServiceError
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-MAX_CAPTCHA_RETRIES = 5
+MAX_CAPTCHA_RETRIES = 3
 
 
-async def handle_captcha_input(user_id: str, captcha: str) -> Dict[str, Any]:
+async def handle_captcha_input(user_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
-    Handles captcha input and verifies GSTIN details.
+    Handles captcha input and verifies GSTIN with GST portal.
+    
+    Flow:
+    1. Get stored GSTIN and session ID
+    2. Call GST portal with captcha
+    3. On success: Show business details, ask for confirmation
+    4. On failure: Retry with new captcha
     
     Args:
-        user_id: User ID
-        captcha: Captcha text entered by user
+        user_id: User's phone number
+        message: Captcha text entered by user
+        **kwargs: Additional parameters
     
     Returns:
         Response dict with business details or error
     """
-    with LogContext(user_id=user_id, state="CAPTCHA_VERIFICATION"):
-        logger.info("Processing captcha input")
+    logger.info(f"Processing captcha input from {user_id}")
+    
+    try:
+        users = get_users_collection()
+        user = await users.find_one({"phone": user_id})
         
-        try:
-            # Sanitize and validate captcha
-            captcha = sanitize_input(captcha).strip()
-            
-            if not validate_captcha(captcha):
-                logger.warning("Invalid captcha format")
-                return {
-                    "status": "error",
-                    "message": create_text_message(
-                        "⚠️ Invalid captcha format. Please enter the text as shown in the image."
-                    ),
-                    "retry": True
-                }
-            
-            # Get GSTIN and session ID from session
-            session_data = await get_session_data(user_id)
-            gstin = session_data.get("gstin")
-            gst_session_id = session_data.get("gst_session_id")
-            
-            if not gstin or not gst_session_id:
-                logger.error("Missing GSTIN or session ID")
-                return {
-                    "status": "error",
-                    "message": create_text_message(
-                        "❌ Session expired. Please restart by typing 'Hi'."
-                    ),
-                    "should_reset": True
-                }
-            
-            # Send verifying message
-            yield {
-                "status": "processing",
-                "message": create_text_message(MESSAGE_VERIFYING_GSTIN)
-            }
-            
-            # Verify GSTIN with GST portal
-            gst_service = get_gst_service()
-            
-            try:
-                details = await gst_service.verify_gstin(
-                    user_id=user_id,
-                    gstin=gstin,
-                    captcha=captcha,
-                    session_id=gst_session_id
-                )
-                
-                # Reset retry count on success
-                await reset_retry_count(user_id)
-                
-                # Save business details
-                await update_user_gstin(user_id, gstin)
-                await update_business_details(user_id, details)
-                await save_session_data(user_id, {"business_details": details})
-                
-                # Format details for display
-                details_text = MESSAGE_GSTIN_VERIFIED.format(
-                    business_name=details.get("legal_name", "N/A"),
-                    gstin=gstin,
-                    status=details.get("status", "N/A"),
-                    type=details.get("taxpayer_type", "N/A")
-                )
-                
-                # Send details with confirmation buttons
-                yield {
-                    "status": "success",
-                    "message": create_text_message(details_text)
-                }
-                
-                # Update state to awaiting confirmation
-                await update_user_state(
-                    user_id,
-                    ConversationState.AWAITING_CONFIRMATION,
-                    validate_transition=True
-                )
-                
-                yield {
-                    "status": "success",
-                    "message": create_button_message(
-                        text=ASK_CONFIRM_DETAILS,
-                        buttons=[
-                            {"id": "confirm_yes", "title": BUTTON_CONFIRM},
-                            {"id": "confirm_no", "title": BUTTON_RETRY}
-                        ]
-                    ),
-                    "next_state": ConversationState.AWAITING_CONFIRMATION.value
-                }
-                
-            except Exception as gst_error:
-                # Handle GST service errors (invalid captcha, etc.)
-                logger.warning(f"GST verification failed: {str(gst_error)}")
-                
-                retry_count = await increment_retry_count(user_id)
-                
-                if retry_count >= MAX_CAPTCHA_RETRIES:
-                    logger.error("Max captcha retries exceeded")
-                    yield {
-                        "status": "error",
-                        "message": create_text_message(ERROR_MAX_RETRIES),
-                        "should_reset": True
-                    }
-                else:
-                    # Fetch new captcha
-                    captcha_data = await gst_service.get_captcha(user_id)
-                    await save_session_data(user_id, {
-                        "gst_session_id": captcha_data["session_id"]
-                    })
-                    
-                    from utils.whatsapp_utils import create_image_message
-                    
-                    yield {
-                        "status": "error",
-                        "message": create_image_message(
-                            image_url=captcha_data["captcha_image"],
-                            caption=ERROR_INVALID_CAPTCHA.format(
-                                remaining=MAX_CAPTCHA_RETRIES - retry_count
-                            )
-                        ),
-                        "retry": True
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Error in captcha handler: {str(e)}", exc_info=True)
-            
+        if not user:
             return {
-                "status": "error",
-                "message": create_text_message(
-                    f"❌ Error verifying details: {str(e)}\n\n"
-                    "Please type 'restart' to try again."
-                ),
-                "error": str(e)
+                "message": "❌ Session expired. Please type *Hi* to start over."
             }
+        
+        captcha = message.strip()
+        
+        # Basic validation
+        if not captcha or len(captcha) < 3:
+            return {
+                "message": """⚠️ *Invalid Captcha*
+
+Please enter the text exactly as shown in the captcha image.
+
+👉 Reply with the captcha text."""
+            }
+        
+        # Get session data
+        session_data = user.get("session_data", {})
+        gstin = user.get("gstin") or session_data.get("gstin")
+        session_id = session_data.get("captcha_session_id")
+        retry_count = session_data.get("captcha_retries", 0)
+        
+        if not gstin:
+            return {
+                "message": "❌ GSTIN not found. Please type *Hi* to start over."
+            }
+        
+        if not session_id:
+            return {
+                "message": "❌ Captcha session expired. Please type *Hi* to start over."
+            }
+        
+        # Verify with GST portal
+        try:
+            gst_service = get_gst_service()
+            result = await gst_service.verify_gstin(
+                user_id=user_id,
+                gstin=gstin,
+                captcha=captcha,
+                session_id=session_id
+            )
+            
+            if result.get("success"):
+                # Verification successful - save business details
+                business = result.get("business_details", {})
+                
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "current_state": ConversationState.AWAITING_CONFIRMATION.value,
+                            "session_data.business_details": business,
+                            "session_data.captcha_verified": True,
+                            "session_data.captcha_retries": 0,
+                            "business_name": business.get("trade_name"),
+                            "legal_name": business.get("legal_name"),
+                            "state": business.get("state"),
+                            "last_active": datetime.utcnow()
+                        }
+                    }
+                )
+                
+                logger.info(f"GSTIN verified for {user_id}: {business.get('trade_name')}")
+                
+                # Show business details for confirmation
+                trade_name = business.get("trade_name", "N/A")
+                legal_name = business.get("legal_name", "N/A")
+                status = business.get("status", "N/A")
+                state = business.get("state", "N/A")
+                
+                return {
+                    "message": f"""✅ *GSTIN Verified Successfully!*
+
+🏢 *Business Details:*
+━━━━━━━━━━━━━━━━━━━━━
+📋 *Trade Name:* {trade_name}
+📝 *Legal Name:* {legal_name}
+🏛️ *Status:* {status}
+📍 *State:* {state}
+━━━━━━━━━━━━━━━━━━━━━
+
+Please confirm these details are correct:
+
+Reply:
+*1* - ✅ Details are correct
+*2* - ❌ Details are wrong (re-enter GSTIN)"""
+                }
+            else:
+                raise GSTServiceError("Verification failed")
+                
+        except GSTServiceError as e:
+            # Captcha verification failed
+            retry_count += 1
+            error_msg = str(e)
+            
+            if retry_count >= MAX_CAPTCHA_RETRIES:
+                # Too many failed attempts - reset to GSTIN step
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "current_state": ConversationState.AWAITING_GSTIN.value,
+                            "session_data.captcha_retries": 0,
+                            "last_active": datetime.utcnow()
+                        }
+                    }
+                )
+                return {
+                    "message": """❌ *Too many failed attempts*
+
+Please enter your GSTIN again to get a new captcha."""
+                }
+            
+            # Get new captcha for retry
+            try:
+                new_captcha_data = await gst_service.get_captcha(user_id)
+                
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "session_data.captcha_session_id": new_captcha_data["session_id"],
+                            "session_data.captcha_retries": retry_count,
+                            "last_active": datetime.utcnow()
+                        }
+                    }
+                )
+                
+                remaining = MAX_CAPTCHA_RETRIES - retry_count
+                
+                return {
+                    "message": f"""❌ *{error_msg}*
+
+🔄 Here's a new captcha. Please try again.
+
+({remaining} attempts remaining)
+
+👉 Reply with the text shown in the image.""",
+                    "media_url": new_captcha_data["image"],
+                    "media_type": "image"
+                }
+                
+            except Exception as captcha_error:
+                logger.error(f"Failed to get new captcha: {captcha_error}")
+                return {
+                    "message": f"""❌ *{error_msg}*
+
+⚠️ Unable to generate new captcha. Please type *Hi* to start over."""
+                }
+        
+    except Exception as e:
+        logger.error(f"Error processing captcha: {str(e)}", exc_info=True)
+        return {
+            "message": f"❌ Error: {str(e)}\n\nPlease type *Hi* to restart."
+        }
 
 
-async def handle_confirmation(user_id: str, confirmed: bool) -> Dict[str, Any]:
+async def handle_confirmation(user_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
     Handles user confirmation of business details.
     
     Args:
-        user_id: User ID
-        confirmed: True if user confirmed, False to retry
+        user_id: User's phone number
+        message: User's response (1=confirm, 2=reject)
+        **kwargs: Additional parameters
     
     Returns:
         Response dict
     """
-    with LogContext(user_id=user_id, state="AWAITING_CONFIRMATION"):
-        logger.info(f"User {'confirmed' if confirmed else 'rejected'} details")
+    logger.info(f"Processing confirmation from {user_id}")
+    
+    try:
+        users = get_users_collection()
+        user = await users.find_one({"phone": user_id})
         
-        if confirmed:
-            # Move to next step - GST type selection
-            from app.flow.handlers.gst_type import handle_gst_type_request
-            return await handle_gst_type_request(user_id)
-        else:
-            # Go back to GSTIN input
-            from app.flow.handlers.gstin import handle_gstin_request
-            
-            await update_user_state(
-                user_id,
-                ConversationState.ASK_GSTIN,
-                validate_transition=False
+        if not user:
+            return {
+                "message": "❌ Session expired. Please type *Hi* to start over."
+            }
+        
+        response = message.strip().lower()
+        
+        # Check for confirmation
+        if response in ["1", "yes", "confirm", "correct", "ok"]:
+            # Confirmed - move to GST type selection
+            await users.update_one(
+                {"phone": user_id},
+                {
+                    "$set": {
+                        "current_state": ConversationState.AWAITING_GST_TYPE.value,
+                        "session_data.details_confirmed": True,
+                        "last_active": datetime.utcnow()
+                    }
+                }
             )
             
-            return await handle_gstin_request(user_id)
+            return {
+                "message": """✅ *Details Confirmed!*
+
+Now, which GST return do you want to file?
+
+Reply with:
+*1* - GSTR-1 (Outward supplies)
+*2* - GSTR-3B (Summary return)
+
+💡 Most businesses file *GSTR-3B* for Nil returns."""
+            }
+        
+        elif response in ["2", "no", "wrong", "incorrect", "reject"]:
+            # Rejected - go back to GSTIN input
+            await users.update_one(
+                {"phone": user_id},
+                {
+                    "$set": {
+                        "current_state": ConversationState.AWAITING_GSTIN.value,
+                        "session_data": {},  # Clear session data
+                        "last_active": datetime.utcnow()
+                    }
+                }
+            )
+            
+            return {
+                "message": """🔄 *No problem!*
+
+Please enter your correct 15-digit GSTIN.
+
+Example: 27AABCU9603R1ZM"""
+            }
+        
+        else:
+            return {
+                "message": """⚠️ *Invalid response*
+
+Please reply with:
+*1* - ✅ Details are correct
+*2* - ❌ Details are wrong"""
+            }
+        
+    except Exception as e:
+        logger.error(f"Error processing confirmation: {str(e)}", exc_info=True)
+        return {
+            "message": f"❌ Error: {str(e)}\n\nPlease type *Hi* to restart."
+        }

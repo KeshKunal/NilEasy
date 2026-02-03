@@ -3,131 +3,92 @@ app/flow/handlers/gst_type.py
 
 Handles: STEP 3 – GST Return Type selection
 
-- Displays WhatsApp list (GSTR-1, GSTR-3B)
-- Handles info/help option
+- Displays GST type options
 - Saves selected return type
 """
 
 from typing import Dict, Any
+from datetime import datetime
 
 from app.flow.states import ConversationState
-from app.services.session_service import update_user_state, save_session_data
-from utils.constants import (
-    ASK_GST_TYPE_MESSAGE,
-    MESSAGE_GST_TYPE_INFO,
-    BUTTON_SELECT_GST_TYPE
-)
-from utils.whatsapp_utils import create_list_message, create_text_message
-from app.core.logging import get_logger, LogContext
+from app.db.mongo import get_users_collection
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-async def handle_gst_type_request(user_id: str) -> Dict[str, Any]:
-    """
-    Sends GST type selection list.
-    
-    Args:
-        user_id: User ID
-    
-    Returns:
-        Response dict with list message
-    """
-    with LogContext(user_id=user_id, state="ASK_GST_TYPE"):
-        logger.info("Requesting GST type selection")
-        
-        # Update state
-        await update_user_state(
-            user_id,
-            ConversationState.ASK_GST_TYPE,
-            validate_transition=True
-        )
-        
-        # Create list message with GST types
-        sections = [
-            {
-                "title": "Select Your GST Type",
-                "rows": [
-                    {
-                        "id": "gst_regular",
-                        "title": "Regular Taxpayer",
-                        "description": "For normal GST registered businesses"
-                    },
-                    {
-                        "id": "gst_composition",
-                        "title": "Composition Scheme",
-                        "description": "For composition taxpayers"
-                    }
-                ]
-            },
-            {
-                "title": "Need Help?",
-                "rows": [
-                    {
-                        "id": "gst_help",
-                        "title": "What's the difference?",
-                        "description": "Learn about GST types"
-                    }
-                ]
-            }
-        ]
-        
-        return {
-            "status": "success",
-            "message": create_list_message(
-                text=ASK_GST_TYPE_MESSAGE,
-                button_text=BUTTON_SELECT_GST_TYPE,
-                sections=sections
-            ),
-            "next_state": ConversationState.ASK_GST_TYPE.value
-        }
-
-
-async def handle_gst_type_selection(user_id: str, selection: str) -> Dict[str, Any]:
+async def handle_gst_type_selection(user_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
     Handles GST type selection from user.
     
     Args:
-        user_id: User ID
-        selection: Selected option ID
+        user_id: User's phone number
+        message: User's message (1 or 2)
+        **kwargs: Additional parameters
     
     Returns:
         Response dict
     """
-    with LogContext(user_id=user_id, state="ASK_GST_TYPE"):
-        logger.info(f"Processing GST type selection: {selection}")
-        
-        # Handle help request
-        if selection == "gst_help":
-            return {
-                "status": "info",
-                "message": create_text_message(MESSAGE_GST_TYPE_INFO),
-                "retry": True  # Ask again after showing info
-            }
+    logger.info(f"Processing GST type selection for {user_id}: {message}")
+    
+    try:
+        users = get_users_collection()
+        selection = message.strip().lower()
         
         # Map selection to GST type
-        gst_type_map = {
-            "gst_regular": "regular",
-            "gst_composition": "composition"
-        }
+        gst_type = None
+        gst_type_display = None
         
-        gst_type = gst_type_map.get(selection)
+        if selection in ["1", "gstr-1", "gstr1"]:
+            gst_type = "gstr1"
+            gst_type_display = "GSTR-1"
+        elif selection in ["2", "gstr-3b", "gstr3b", "3b"]:
+            gst_type = "gstr3b"
+            gst_type_display = "GSTR-3B"
         
         if not gst_type:
             logger.warning(f"Invalid GST type selection: {selection}")
             return {
-                "status": "error",
-                "message": create_text_message(
-                    "⚠️ Invalid selection. Please select a valid GST type."
-                ),
-                "retry": True
+                "message": """⚠️ *Invalid selection*
+
+Please reply with:
+*1* - GSTR-1 (Outward supplies)
+*2* - GSTR-3B (Summary return)"""
             }
         
-        # Save GST type to session
-        await save_session_data(user_id, {"gst_type": gst_type})
+        # Save GST type to session and update state
+        await users.update_one(
+            {"phone": user_id},
+            {
+                "$set": {
+                    "gst_type": gst_type,
+                    "current_state": ConversationState.AWAITING_DURATION.value,
+                    "session_data.gst_type": gst_type,
+                    "last_active": datetime.utcnow()
+                }
+            }
+        )
         
         logger.info(f"GST type saved: {gst_type}")
         
         # Move to duration/period selection
-        from app.flow.handlers.duration import handle_duration_request
-        return await handle_duration_request(user_id)
+        return {
+            "message": f"""✅ *{gst_type_display} selected*
+
+Now, for which period do you want to file the Nil return?
+
+Reply with the month number:
+*1* - January 2026
+*2* - February 2026
+*3* - December 2025
+*4* - November 2025
+
+Or type the month and year (e.g., *Jan 2026*)"""
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing GST type selection: {str(e)}", exc_info=True)
+        
+        return {
+            "message": f"❌ Error: {str(e)}\n\nPlease try again."
+        }

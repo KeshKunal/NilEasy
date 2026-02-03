@@ -103,3 +103,26 @@ async def webhook_verification(request: Request):
     Webhook verification endpoint (for platforms that require GET verification)
     """
     return {"status": "ok", "message": "Webhook endpoint is active"}
+
+
+@router.get("/captcha/{user_id}")
+async def get_captcha_image(user_id: str):
+    """
+    Serves captcha image for a user.
+    
+    This endpoint is called by Twilio to fetch the captcha image.
+    The image is stored temporarily in the GST service.
+    """
+    from fastapi.responses import Response as FastAPIResponse
+    from app.services.gst_service import get_gst_service
+    
+    gst_service = get_gst_service()
+    image_data = gst_service.get_captcha_image(user_id)
+    
+    if not image_data:
+        raise HTTPException(status_code=404, detail="Captcha not found or expired")
+    
+    return FastAPIResponse(
+        content=image_data,
+        media_type="image/png"
+    )

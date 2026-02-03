@@ -223,5 +223,89 @@ Period: {readable_period}
         return False
 
 
+    async def create_sms_deep_link(
+        self,
+        sms_text: str,
+        phone_number: str,
+        user_phone: str
+    ) -> Dict[str, Any]:
+        """
+        Creates a shortened link that redirects to SMS app with pre-filled message.
+        
+        Uses the SMS Shortlink Generator API at sm-snacc.vercel.app which creates
+        a beautiful redirect page that opens the SMS app.
+        
+        Args:
+            sms_text: The SMS body to pre-fill (e.g., "NIL 3B 29AACCF0683K1ZD 012026")
+            phone_number: Destination SMS number (e.g., "14409")
+            user_phone: User's phone for logging
+            
+        Returns:
+            {
+                "success": True/False,
+                "short_url": "clickable URL like https://sm-snacc.vercel.app/s/abc123",
+                "error": "optional error"
+            }
+        """
+        try:
+            logger.info(f"Creating SMS shortlink for {user_phone} to {phone_number}")
+            
+            # Call SMS Shortlink Generator API
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.api_url}/api/v1/shortlinks",
+                    json={
+                        "phone_number": phone_number,
+                        "message": sms_text
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    short_url = data.get("short_url")
+                    short_code = data.get("short_code")
+                    
+                    logger.info(f"✅ SMS shortlink created: {short_url} (code: {short_code})")
+                    
+                    return {
+                        "success": True,
+                        "short_url": short_url,
+                        "short_code": short_code
+                    }
+                else:
+                    error_msg = f"API returned status {response.status_code}"
+                    logger.error(f"SMS shortlink API error: {error_msg}")
+                    logger.error(f"Response: {response.text}")
+                    
+                    # Fallback to direct SMS URI
+                    from urllib.parse import quote
+                    sms_uri = f"sms:{phone_number}?body={quote(sms_text)}"
+                    return {
+                        "success": True,
+                        "short_url": sms_uri,
+                        "error": error_msg
+                    }
+                    
+        except httpx.TimeoutException:
+            logger.error("SMS shortlink API timeout")
+            from urllib.parse import quote
+            sms_uri = f"sms:{phone_number}?body={quote(sms_text)}"
+            return {
+                "success": True,
+                "short_url": sms_uri,
+                "error": "API timeout, using direct link"
+            }
+        except Exception as e:
+            logger.error(f"Error creating SMS shortlink: {e}", exc_info=True)
+            # Return direct SMS URI as fallback
+            from urllib.parse import quote
+            sms_uri = f"sms:{phone_number}?body={quote(sms_text)}"
+            return {
+                "success": True,
+                "short_url": sms_uri,
+                "error": str(e)
+            }
+
+
 # Singleton instance
 sms_link_service = SMSLinkService()

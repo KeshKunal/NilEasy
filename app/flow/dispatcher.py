@@ -30,7 +30,8 @@ async def dispatch_message(message: UnifiedMessage, platform: str) -> Dict[str, 
     Returns:
         Response dict
     """
-    logger.info(f"Dispatching message from {message.phone} via {platform}")
+    logger.info(f"📨 Dispatching message from {message.phone} via {platform}")
+    logger.info(f"   Message text: {message.text}")
     
     try:
         # Get or create user
@@ -43,17 +44,23 @@ async def dispatch_message(message: UnifiedMessage, platform: str) -> Dict[str, 
                     phone=message.phone,
                     name=message.name
                 )
-                logger.info(f"Created new user: {message.phone}")
+                logger.info(f"✅ Created new user: {message.phone}")
             except Exception as create_error:
                 # User might have been created by another request, try to get again
-                logger.warning(f"Error creating user, attempting to retrieve: {create_error}")
+                logger.warning(f"⚠️ Error creating user, attempting to retrieve: {create_error}")
                 user = await get_user_by_phone(message.phone)
                 if not user:
                     raise create_error
         
         # Get current conversation state
         current_state = user.get("current_state", ConversationState.WELCOME.value)
-        logger.info(f"User state: {current_state}")
+        logger.info(f"🔄 User state: {current_state}")
+        
+        # Check for restart commands
+        lower_text = message.text.lower().strip()
+        if lower_text in ["hi", "hello", "start", "restart", "reset", "hey"]:
+            current_state = ConversationState.WELCOME.value
+            logger.info("↩️ Restart command detected, going to WELCOME")
         
         # Route to appropriate handler based on state
         response = await route_to_handler(
@@ -73,10 +80,10 @@ async def dispatch_message(message: UnifiedMessage, platform: str) -> Dict[str, 
         return {"status": "success"}
         
     except Exception as e:
-        logger.error(f"Dispatcher error: {e}", exc_info=True)
+        logger.error(f"❌ Dispatcher error: {e}", exc_info=True)
         
         # Send error message to user
-        error_msg = "❌ Something went wrong. Please type 'start' to begin again."
+        error_msg = "❌ Something went wrong. Please type *Hi* to begin again."
         await send_response(
             to_phone=message.phone,
             response={"message": error_msg},
@@ -104,52 +111,63 @@ async def route_to_handler(
     Returns:
         Handler response
     """
-    from app.flow.handlers import (
-        welcome,
-        gstin,
-        captcha,
-        gst_type,
-        duration,
-        sms,
-        otp,
-        completion
-    )
+    from app.flow.handlers.welcome import handle_welcome
+    from app.flow.handlers.gstin import handle_gstin_input
+    from app.flow.handlers.captcha import handle_captcha_input, handle_confirmation
+    from app.flow.handlers.gst_type import handle_gst_type_selection
+    from app.flow.handlers.duration import handle_duration_selection
+    from app.flow.handlers.sms import handle_sms_generation
+    from app.flow.handlers.otp import handle_otp_input
+    from app.flow.handlers.completion import handle_completion
     
-    # Map states to handlers
-    handlers = {
-        ConversationState.WELCOME.value: welcome.handle_welcome,
-        ConversationState.ASK_GSTIN.value: gstin.handle_gstin_input,
-        ConversationState.ASK_CAPTCHA.value: captcha.handle_captcha,
-        ConversationState.VERIFY_DETAILS.value: captcha.handle_details_confirmation,
-        ConversationState.ASK_GST_TYPE.value: gst_type.handle_gst_type_selection,
-        ConversationState.ASK_DURATION.value: duration.handle_duration_selection,
-        ConversationState.SMS_GENERATION.value: sms.handle_sms_generation,
-        ConversationState.AWAITING_OTP.value: otp.handle_otp_input,
-        ConversationState.COMPLETED.value: completion.handle_completion,
-    }
+    logger.info(f"🚦 Routing: state={state}, message={message_text[:50] if message_text else 'None'}")
     
-    handler = handlers.get(state)
+    # State to handler mapping
+    handler = None
     
-    if not handler:
-        logger.warning(f"No handler found for state: {state}")
-        return {
-            "message": "I'm not sure what to do here. Type 'start' to begin."
-        }
+    if state == ConversationState.WELCOME.value:
+        handler = handle_welcome
+    elif state == ConversationState.AWAITING_GSTIN.value:
+        handler = handle_gstin_input
+    elif state == ConversationState.AWAITING_CAPTCHA.value:
+        handler = handle_captcha_input
+    elif state == ConversationState.AWAITING_CONFIRMATION.value:
+        handler = handle_confirmation
+    elif state == ConversationState.AWAITING_GST_TYPE.value:
+        handler = handle_gst_type_selection
+    elif state == ConversationState.AWAITING_DURATION.value:
+        handler = handle_duration_selection
+    elif state == ConversationState.AWAITING_OTP.value:
+        handler = handle_otp_input
+    elif state == ConversationState.COMPLETED.value:
+        # User is at completed state - handle post-completion responses
+        from app.flow.handlers.completion import handle_post_completion
+        handler = handle_post_completion
+    elif state == ConversationState.SMS_GENERATION.value:
+        # This is a transitional state, handle like OTP
+        handler = handle_otp_input
+    else:
+        # Unknown state - try welcome
+        logger.warning(f"⚠️ Unknown state: {state}, defaulting to WELCOME")
+        handler = handle_welcome
     
     # Call handler
     try:
-        # Pass button_id if available
-        if button_id:
-            response = await handler(user_id, message_text, button_id=button_id)
-        else:
-            response = await handler(user_id, message_text)
+        logger.info(f"📞 Calling handler: {handler.__name__}")
         
+        response = await handler(
+            user_id=user_id,
+            message=message_text,
+            button_id=button_id
+        )
+        
+        logger.info(f"✅ Handler returned: {str(response)[:100]}")
         return response
         
     except Exception as e:
-        logger.error(f"Handler error: {e}", exc_info=True)
+        logger.error(f"❌ Handler error: {e}", exc_info=True)
         return {
-            "message": f"❌ Error: {str(e)}\n\nPlease try again or type 'start' to restart."
+            "message": f"❌ Error: {str(e)}\n\nPlease try again or type *Hi* to restart."
         }
 
 
@@ -167,25 +185,33 @@ async def send_response(
         platform: "twilio" or "aisensy"
     """
     message_text = response.get("message", "")
+    media_url = response.get("media_url")  # For captcha images, etc.
     
     if not message_text:
-        logger.warning("Empty response message")
+        logger.warning("⚠️ Empty response message")
         return
+    
+    logger.info(f"📤 Sending response to {to_phone} via {platform}")
+    logger.info(f"   Message preview: {message_text[:100]}...")
+    if media_url:
+        logger.info(f"   Media URL: {media_url[:50] if len(media_url) > 50 else media_url}...")
     
     if platform == "twilio":
         # Send via Twilio
         result = await twilio_service.send_message(
             to_phone=to_phone,
-            message=message_text
+            message=message_text,
+            media_url=media_url
         )
         
-        if not result["success"]:
-            logger.error(f"Failed to send Twilio message: {result.get('error')}")
+        if result["success"]:
+            logger.info(f"✅ Message sent via Twilio: SID={result.get('message_sid', 'N/A')}")
+        else:
+            logger.error(f"❌ Failed to send Twilio message: {result.get('error')}")
             
     elif platform == "aisensy":
         # TODO: Implement AiSensy sending
-        # For now, just log
-        logger.info(f"Would send via AiSensy to {to_phone}: {message_text[:50]}")
+        logger.info(f"📬 Would send via AiSensy to {to_phone}")
     
     else:
-        logger.error(f"Unknown platform: {platform}")
+        logger.error(f"❌ Unknown platform: {platform}")

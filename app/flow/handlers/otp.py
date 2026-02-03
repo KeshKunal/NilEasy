@@ -1,242 +1,318 @@
 """
 app/flow/handlers/otp.py
 
-Handles: STEP 6 & 7 – OTP and confirmation
+Handles: STEP 6 & 7 – OTP Guidance and Confirmation
 
-- Handles OTP received / not received flows
-- Extracts OTP from pasted messages (optional)
-- Generates confirmation SMS format
-- Handles retries and troubleshooting paths
+Flow:
+1. User sends SMS to 14409
+2. GST portal sends OTP to user's registered mobile
+3. User needs to send confirmation SMS: CNF <type> <OTP>
+4. GST portal sends ARN confirmation
+
+We guide the user through this process.
 """
 
 from typing import Dict, Any
+from datetime import datetime
+from urllib.parse import quote
 
 from app.flow.states import ConversationState
-from app.services.session_service import update_user_state, get_session_data, save_session_data
-from app.services.filing_service import get_filing_service
-from utils.constants import (
-    ASK_OTP_MESSAGE,
-    MESSAGE_OTP_NOT_RECEIVED,
-    ERROR_INVALID_OTP,
-    BUTTON_OTP_RECEIVED,
-    BUTTON_OTP_NOT_RECEIVED
-)
-from utils.whatsapp_utils import create_text_message, create_button_message
-from utils.validation_utils import extract_otp, validate_otp_format
-from utils.sms_utils import build_gst_sms_content
-from app.core.logging import get_logger, LogContext
+from app.db.mongo import get_users_collection
+from app.services.sms_link_service import sms_link_service
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+GST_SMS_NUMBER = "14409"
 
-async def handle_otp_request(user_id: str) -> Dict[str, Any]:
+
+def generate_confirmation_sms_text(gst_type: str, otp: str) -> str:
     """
-    Asks user if they received OTP.
+    Generate confirmation SMS text.
+    
+    Format: CNF <Return Type> <OTP>
     
     Args:
-        user_id: User ID
+        gst_type: "gstr1" or "gstr3b"
+        otp: 6-digit OTP code
+    
+    Returns:
+        SMS text like "CNF 3B 107543"
+    """
+    return_code = "R1" if gst_type == "gstr1" else "3B"
+    return f"CNF {return_code} {otp}"
+
+
+async def handle_otp_input(user_id: str, message: str, **kwargs) -> Dict[str, Any]:
+    """
+    Handles OTP flow - guides user through OTP receipt and confirmation.
+    
+    States:
+    - User confirms SMS sent → Wait for OTP
+    - User received OTP → Guide to send confirmation SMS
+    - User sent confirmation → Ask about ARN
+    - User received ARN → Complete
+    
+    Args:
+        user_id: User's phone number
+        message: User's response
+        **kwargs: Additional parameters
     
     Returns:
         Response dict
     """
-    with LogContext(user_id=user_id, state="AWAITING_OTP"):
-        logger.info("Asking for OTP confirmation")
-        
-        # Update state
-        await update_user_state(
-            user_id,
-            ConversationState.AWAITING_OTP,
-            validate_transition=True
-        )
-        
-        return {
-            "status": "success",
-            "message": create_button_message(
-                text=ASK_OTP_MESSAGE,
-                buttons=[
-                    {"id": "otp_received", "title": BUTTON_OTP_RECEIVED},
-                    {"id": "otp_not_received", "title": BUTTON_OTP_NOT_RECEIVED}
-                ]
-            ),
-            "next_state": ConversationState.AWAITING_OTP.value
-        }
-
-
-async def handle_otp_response(user_id: str, received: bool) -> Dict[str, Any]:
-    """
-    Handles OTP received/not received response.
+    logger.info(f"Processing OTP flow for {user_id}: {message}")
     
-    Args:
-        user_id: User ID
-        received: True if OTP was received
-    
-    Returns:
-        Response dict
-    """
-    with LogContext(user_id=user_id, state="AWAITING_OTP"):
-        logger.info(f"OTP status: {'received' if received else 'not received'}")
+    try:
+        users = get_users_collection()
+        user = await users.find_one({"phone": user_id})
         
-        if received:
-            # Update filing status
-            filing_service = get_filing_service()
-            await filing_service.update_filing_status(
-                user_id=user_id,
-                status="otp_received"
-            )
-            
-            # Ask user to paste OTP
-            await update_user_state(
-                user_id,
-                ConversationState.OTP_ENTRY,
-                validate_transition=True
-            )
-            
+        if not user:
             return {
-                "status": "success",
-                "message": create_text_message(
-                    "🔑 *Please enter the 6-digit OTP*\n\n"
-                    "You can paste the entire SMS message - I'll extract the OTP automatically!\n\n"
-                    "👉 Just paste your SMS here and send."
-                ),
-                "next_state": ConversationState.OTP_ENTRY.value
+                "message": "❌ Session expired. Please type *Hi* to start over."
             }
-        else:
-            # Show troubleshooting message
-            return {
-                "status": "info",
-                "message": create_text_message(MESSAGE_OTP_NOT_RECEIVED),
-                "retry": True
-            }
-
-
-async def handle_otp_input(user_id: str, otp_message: str) -> Dict[str, Any]:
-    """
-    Handles OTP input from user.
-    
-    Args:
-        user_id: User ID
-        otp_message: Message containing OTP
-    
-    Returns:
-        Response dict with final SMS instructions
-    """
-    with LogContext(user_id=user_id, state="OTP_ENTRY"):
-        logger.info("Processing OTP input")
         
-        try:
-            # Extract OTP from message
-            otp = extract_otp(otp_message)
-            
-            if not otp or not validate_otp_format(otp):
-                logger.warning("Invalid OTP format")
+        session_data = user.get("session_data", {})
+        gst_type = session_data.get("gst_type", "gstr3b")
+        gstin = user.get("gstin") or session_data.get("gstin")
+        otp_stage = session_data.get("otp_stage", "sms_pending")
+        
+        response = message.strip().lower()
+        
+        # Handle based on current OTP stage
+        if otp_stage == "sms_pending":
+            # User hasn't confirmed SMS sent yet
+            if response in ["1", "sent", "yes", "done"]:
+                # User sent SMS - wait for OTP
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "session_data.sms_sent_at": datetime.utcnow(),
+                            "session_data.otp_stage": "waiting_otp",
+                            "last_active": datetime.utcnow()
+                        }
+                    }
+                )
+                
                 return {
-                    "status": "error",
-                    "message": create_text_message(ERROR_INVALID_OTP),
-                    "retry": True
+                    "message": """✅ *SMS Sent!*
+
+⏳ You should receive an *OTP from GST* within 30-120 seconds.
+
+The message will look like:
+_"107543 is the CODE for Nil filing of GSTR3B for 07AQDPP8277H8Z6..."_
+
+━━━━━━━━━━━━━━━━━━━━━
+
+Once you receive the OTP, reply:
+*1* - ✅ I received the OTP
+*2* - ❌ Didn't receive OTP (wait 2 minutes first)"""
                 }
             
-            # Save OTP to session
-            await save_session_data(user_id, {"otp": otp})
-            
-            # Get session data for final SMS
-            session_data = await get_session_data(user_id)
-            gstin = session_data.get("gstin")
-            gst_type = session_data.get("gst_type")
-            period = session_data.get("period")
-            
-            # Generate final confirmation SMS
-            final_sms = build_gst_sms_content(
-                gstin=gstin,
-                gst_type=gst_type,
-                period=period,
-                otp=otp
-            )
-            
-            # Update state to final confirmation
-            await update_user_state(
-                user_id,
-                ConversationState.FINAL_SMS_CONFIRMATION,
-                validate_transition=True
-            )
-            
-            from utils.sms_utils import create_sms_deep_link, get_gst_portal_number
-            deep_link = create_sms_deep_link(get_gst_portal_number(), final_sms)
-            
-            # Send final SMS instructions
-            yield {
-                "status": "success",
-                "message": create_text_message(
-                    f"""✅ *OTP Received: {otp}*
+            elif response in ["2", "help", "issue", "problem"]:
+                # User needs help
+                return {
+                    "message": """❓ *Need Help?*
 
-📱 Now send this FINAL confirmation SMS:
+Common issues:
 
-```{final_sms}```
+1️⃣ *SMS not sending?*
+   • Make sure you're using your GST-registered mobile
+   • Check your SMS app for the pre-filled message
+   • Send to number: 14409
 
-👇 Tap below to open SMS app:"""
-                )
-            }
+2️⃣ *Link not working?*
+   • Copy this message manually and send to 14409:
+   `{sms_text}`
+
+3️⃣ *Wrong GSTIN/Period?*
+   • Type *Hi* to start over
+
+Reply *1* when you've sent the SMS.""".format(
+                        sms_text=session_data.get("sms_text", "NIL 3B <GSTIN> <PERIOD>")
+                    )
+                }
             
-            yield {
-                "status": "success",
-                "message": create_button_message(
-                    text="🚨 *IMPORTANT:* Send this SMS exactly as shown. Do not edit!",
-                    buttons=[
-                        {
-                            "id": "open_final_sms",
-                            "title": "📲 Open SMS App",
-                            "url": deep_link
+            else:
+                return {
+                    "message": """⚠️ Please reply with:
+*1* - ✅ SMS Sent
+*2* - ❌ I need help"""
+                }
+        
+        elif otp_stage == "waiting_otp":
+            # User is waiting for OTP
+            if response in ["1", "received", "got", "yes"]:
+                # User received OTP - guide to send confirmation
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "session_data.otp_stage": "sending_confirmation",
+                            "last_active": datetime.utcnow()
                         }
-                    ]
+                    }
                 )
-            }
+                
+                return_code = "R1" if gst_type == "gstr1" else "3B"
+                
+                return {
+                    "message": f"""✅ *Great! You received the OTP!*
+
+Now you need to *confirm the filing* by sending another SMS.
+
+📱 *Send this to 14409:*
+
+```
+CNF {return_code} <YOUR_OTP>
+```
+
+Replace `<YOUR_OTP>` with the 6-digit code you received.
+
+*Example:* If your OTP is 107543, send:
+```
+CNF {return_code} 107543
+```
+
+━━━━━━━━━━━━━━━━━━━━━
+
+After sending the confirmation SMS, reply:
+*1* - ✅ Confirmation SMS Sent
+*2* - ❌ I need help"""
+                }
             
-            # Ask for final confirmation
-            from utils.constants import ASK_FINAL_CONFIRMATION, BUTTON_FILED_CONFIRM
+            elif response in ["2", "no", "not received", "didnt"]:
+                # User didn't receive OTP
+                return {
+                    "message": """⏳ *OTP Not Received?*
+
+Please wait for 2-3 minutes. The GST portal can be slow sometimes.
+
+*Troubleshooting:*
+1️⃣ Check if SMS was sent from your *GST-registered mobile*
+2️⃣ Verify the message format was correct
+3️⃣ Check your SMS inbox for messages from VD-GSTIND
+
+*Want to try again?*
+Reply *retry* to get a fresh SMS link
+
+*Still having issues?*
+Reply *Hi* to start over"""
+                }
             
-            yield {
-                "status": "success",
-                "message": create_button_message(
-                    text=ASK_FINAL_CONFIRMATION,
-                    buttons=[
-                        {"id": "filing_complete", "title": BUTTON_FILED_CONFIRM}
-                    ]
-                ),
-                "next_state": ConversationState.FINAL_SMS_CONFIRMATION.value
-            }
+            elif response == "retry":
+                # Regenerate SMS link
+                from app.flow.handlers.sms import handle_sms_generation
+                await users.update_one(
+                    {"phone": user_id},
+                    {"$set": {"session_data.otp_stage": "sms_pending"}}
+                )
+                return await handle_sms_generation(user_id)
             
-            logger.info("OTP processed, awaiting final confirmation")
+            else:
+                return {
+                    "message": """⚠️ Please reply with:
+*1* - ✅ I received the OTP
+*2* - ❌ Didn't receive OTP"""
+                }
+        
+        elif otp_stage == "sending_confirmation":
+            # User is sending confirmation SMS
+            if response in ["1", "sent", "done", "yes"]:
+                # User sent confirmation - wait for ARN
+                await users.update_one(
+                    {"phone": user_id},
+                    {
+                        "$set": {
+                            "session_data.otp_stage": "waiting_arn",
+                            "session_data.confirmation_sent_at": datetime.utcnow(),
+                            "last_active": datetime.utcnow()
+                        }
+                    }
+                )
+                
+                return {
+                    "message": """✅ *Confirmation SMS Sent!*
+
+⏳ You should receive the *ARN (Acknowledgment Reference Number)* shortly.
+
+The success message will look like:
+_"Your, 07AQDPP8277H8Z6, GSTR3B for tax period 022019 is filed successfully and ARN is AA..."_
+
+━━━━━━━━━━━━━━━━━━━━━
+
+Reply:
+*1* - ✅ I received the ARN (Filing Complete!)
+*2* - ❌ Didn't receive confirmation"""
+                }
             
-        except Exception as e:
-            logger.error(f"Error processing OTP: {str(e)}", exc_info=True)
+            elif response in ["2", "help", "issue"]:
+                return_code = "R1" if gst_type == "gstr1" else "3B"
+                
+                return {
+                    "message": f"""❓ *Help with Confirmation SMS*
+
+Make sure you send:
+```
+CNF {return_code} <6-digit OTP>
+```
+
+to number *14409*
+
+⚠️ *Important:*
+• Use the exact OTP from the GST message
+• OTP is valid for *30 minutes* only
+• Send from your GST-registered mobile
+
+Reply *1* when you've sent the confirmation."""
+                }
+            
+            else:
+                return {
+                    "message": """⚠️ Please reply with:
+*1* - ✅ Confirmation SMS Sent
+*2* - ❌ I need help"""
+                }
+        
+        elif otp_stage == "waiting_arn":
+            # User is waiting for ARN
+            if response in ["1", "received", "got", "yes", "done"]:
+                # Filing complete!
+                from app.flow.handlers.completion import handle_completion
+                return await handle_completion(user_id)
+            
+            elif response in ["2", "no", "not received"]:
+                return {
+                    "message": """⏳ *ARN Not Received?*
+
+The ARN confirmation usually arrives within seconds. If not received:
+
+1️⃣ *Check your SMS inbox* for messages from VD-GSTIND
+2️⃣ *Verify the confirmation SMS* was sent correctly
+3️⃣ *Check if OTP was valid* (30-minute expiry)
+
+If you received an error message, please share it here.
+
+*To retry the entire process:*
+Reply *Hi* to start over"""
+                }
+            
+            else:
+                return {
+                    "message": """⚠️ Please reply with:
+*1* - ✅ I received the ARN
+*2* - ❌ Didn't receive confirmation"""
+                }
+        
+        else:
+            # Unknown stage - reset
             return {
-                "status": "error",
-                "message": create_text_message(
-                    f"❌ Error processing OTP: {str(e)}\n\nPlease try again."
-                ),
-                "error": str(e)
+                "message": "❌ Something went wrong. Please type *Hi* to start over."
             }
-
-
-async def handle_final_confirmation(user_id: str) -> Dict[str, Any]:
-    """
-    Handles final filing confirmation.
-    
-    Args:
-        user_id: User ID
-    
-    Returns:
-        Response dict with completion message
-    """
-    with LogContext(user_id=user_id, state="FINAL_SMS_CONFIRMATION"):
-        logger.info("Processing final filing confirmation")
         
-        # Update filing status to completed
-        filing_service = get_filing_service()
-        await filing_service.update_filing_status(
-            user_id=user_id,
-            status="completed"
-        )
-        
-        # Move to completion
-        from app.flow.handlers.completion import handle_completion
-        return await handle_completion(user_id)
+    except Exception as e:
+        logger.error(f"Error in OTP handler: {str(e)}", exc_info=True)
+        return {
+            "message": f"❌ Error: {str(e)}\n\nPlease type *Hi* to restart."
+        }

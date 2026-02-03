@@ -18,13 +18,14 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
-async def handle_welcome(user_id: str, message: str) -> Dict[str, Any]:
+async def handle_welcome(user_id: str, message: str, **kwargs) -> Dict[str, Any]:
     """
     Handles welcome message and initializes user session.
     
     Args:
         user_id: User's phone number
         message: User's message (typically "Hi" or button click)
+        **kwargs: Additional parameters (button_id, etc.)
     
     Returns:
         Response dict with message payload
@@ -32,13 +33,13 @@ async def handle_welcome(user_id: str, message: str) -> Dict[str, Any]:
     logger.info(f"Processing welcome interaction for {user_id}")
     
     try:
-        # Update user state to ASK_GSTIN (next step)
+        # Update user state to AWAITING_GSTIN (next step)
         users = get_users_collection()
         await users.update_one(
             {"phone": user_id},
             {
                 "$set": {
-                    "current_state": ConversationState.ASK_GSTIN.value,
+                    "current_state": ConversationState.AWAITING_GSTIN.value,
                     "last_active": datetime.utcnow(),
                     "session_data": {}  # Reset session
                 }
@@ -46,7 +47,7 @@ async def handle_welcome(user_id: str, message: str) -> Dict[str, Any]:
         )
         
         # Send welcome message
-        welcome_text = """👋 Welcome to NilEasy!
+        welcome_text = """👋 *Welcome to NilEasy!*
 
 I'll help you file NIL returns for your GST registration quickly and easily.
 
@@ -58,7 +59,9 @@ The process takes just 2-3 minutes:
 5️⃣ Submit OTP
 6️⃣ Done! ✅
 
-Let's get started! Please enter your 15-digit GSTIN."""
+Let's get started! Please enter your *15-digit GSTIN*.
+
+Example: 27AABCU9603R1ZM"""
         
         logger.info("Welcome message sent successfully")
         
