@@ -113,10 +113,15 @@ app.add_middleware(
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     """Add processing time header to all responses."""
+    # Log all incoming requests
+    logger.info(f"📥 Incoming request: {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+    
     start_time = time.time()
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+    
+    logger.info(f"📤 Response: {response.status_code} in {process_time:.3f}s")
     
     # Log slow requests
     if process_time > 5.0:  # More than 5 seconds

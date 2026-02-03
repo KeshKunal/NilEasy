@@ -9,13 +9,11 @@ Handles: STEP 0 – Entry / Welcome
 """
 
 from typing import Dict, Any
+from datetime import datetime
 
 from app.flow.states import ConversationState
-from app.services.session_service import update_user_state, reset_session
-from app.services.user_service import get_or_create_user
-from utils.constants import WELCOME_MESSAGE, BUTTON_START_FILING, BUTTON_HELP
-from utils.whatsapp_utils import create_button_message
-from app.core.logging import get_logger, LogContext
+from app.db.mongo import get_users_collection
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -25,54 +23,52 @@ async def handle_welcome(user_id: str, message: str) -> Dict[str, Any]:
     Handles welcome message and initializes user session.
     
     Args:
-        user_id: WhatsApp user ID
+        user_id: User's phone number
         message: User's message (typically "Hi" or button click)
     
     Returns:
         Response dict with message payload
     """
-    with LogContext(user_id=user_id, state="WELCOME"):
-        logger.info("Processing welcome interaction")
+    logger.info(f"Processing welcome interaction for {user_id}")
+    
+    try:
+        # Update user state to ASK_GSTIN (next step)
+        users = get_users_collection()
+        await users.update_one(
+            {"phone": user_id},
+            {
+                "$set": {
+                    "current_state": ConversationState.ASK_GSTIN.value,
+                    "last_active": datetime.utcnow(),
+                    "session_data": {}  # Reset session
+                }
+            }
+        )
         
-        try:
-            # Get or create user
-            user = await get_or_create_user(user_id)
-            
-            # Reset any existing session
-            await reset_session(user_id, "Starting new filing session")
-            
-            # Update state to WELCOME
-            await update_user_state(
-                user_id,
-                ConversationState.WELCOME,
-                validate_transition=False  # Entry point, no validation needed
-            )
-            
-            # Create response with buttons
-            response = create_button_message(
-                text=WELCOME_MESSAGE,
-                buttons=[
-                    {"id": "start_filing", "title": BUTTON_START_FILING},
-                    {"id": "help", "title": BUTTON_HELP}
-                ]
-            )
-            
-            logger.info("Welcome message sent successfully")
-            
-            return {
-                "status": "success",
-                "message": response,
-                "next_state": ConversationState.ASK_GSTIN.value
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in welcome handler: {str(e)}", exc_info=True)
-            
-            return {
-                "status": "error",
-                "message": {
-                    "type": "text",
-                    "text": "❌ Oops! Something went wrong. Please type 'Hi' to restart."
-                },
-                "error": str(e)
-            }
+        # Send welcome message
+        welcome_text = """👋 Welcome to NilEasy!
+
+I'll help you file NIL returns for your GST registration quickly and easily.
+
+The process takes just 2-3 minutes:
+1️⃣ Verify your GSTIN
+2️⃣ Solve a simple captcha
+3️⃣ Select GST type & period
+4️⃣ Get OTP link
+5️⃣ Submit OTP
+6️⃣ Done! ✅
+
+Let's get started! Please enter your 15-digit GSTIN."""
+        
+        logger.info("Welcome message sent successfully")
+        
+        return {
+            "message": welcome_text
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in welcome handler: {str(e)}", exc_info=True)
+        
+        return {
+            "message": "❌ Oops! Something went wrong. Please type 'Hi' to restart."
+        }

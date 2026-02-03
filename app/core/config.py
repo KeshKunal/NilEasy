@@ -33,7 +33,21 @@ class Settings(BaseSettings):
         description="MongoDB database name"
     )
     
-    # WhatsApp/AiSensy
+    # Twilio (for testing)
+    TWILIO_ACCOUNT_SID: Optional[str] = Field(
+        default=None,
+        description="Twilio Account SID"
+    )
+    TWILIO_AUTH_TOKEN: Optional[str] = Field(
+        default=None,
+        description="Twilio Auth Token"
+    )
+    TWILIO_WHATSAPP_NUMBER: str = Field(
+        default="whatsapp:+14155238886",
+        description="Twilio WhatsApp Sandbox number"
+    )
+    
+    # WhatsApp/AiSensy (for production)
     AISENSY_API_KEY: Optional[str] = Field(
         default=None,
         description="AiSensy API key for WhatsApp integration"
@@ -88,6 +102,10 @@ class Settings(BaseSettings):
     )
     
     # Application
+    APP_NAME: str = Field(
+        default="NilEasy",
+        description="Application name"
+    )
     DEBUG: bool = Field(
         default=False,
         description="Enable debug mode"
@@ -96,6 +114,10 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
     )
+    LOG_FILE: str = Field(
+        default="logs/app.log",
+        description="Log file path"
+    )
     API_PREFIX: str = Field(
         default="/api/v1",
         description="API route prefix"
@@ -103,6 +125,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list = Field(
         default=["*"],
         description="Allowed CORS origins"
+    )
+    MAX_MESSAGES_PER_DAY: int = Field(
+        default=100,
+        description="Maximum messages per user per day"
     )
     
     # Security
@@ -152,9 +178,9 @@ def validate_settings():
     """
     errors = []
     
-    # Validate MongoDB URI
-    if not settings.MONGODB_URI:
-        errors.append("MONGODB_URI is required")
+    # Validate MongoDB URL
+    if not settings.MONGODB_URL:
+        errors.append("MONGODB_URL is required")
     
     # Validate GST service URL
     if not settings.GST_SERVICE_URL:

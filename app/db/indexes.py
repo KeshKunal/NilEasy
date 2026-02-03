@@ -10,8 +10,7 @@ Purpose: Database index management
 
 from app.db.mongo import (
     get_users_collection,
-    get_filing_attempts_collection,
-    get_sessions_collection
+    get_filing_attempts_collection
 )
 from app.core.logging import get_logger
 
@@ -26,7 +25,6 @@ async def create_indexes():
     try:
         users = get_users_collection()
         filings = get_filing_attempts_collection()
-        sessions = get_sessions_collection()
         
         logger.info("Creating database indexes...")
         
@@ -35,117 +33,133 @@ async def create_indexes():
         # ==============================================
         
         # Unique index on user_id (primary identifier)
-        await users.create_index("user_id", unique=True, name="user_id_unique")
-        logger.debug("Created unique index on users.user_id")
+        try:
+            await users.create_index("user_id", unique=True, name="user_id_unique")
+            logger.debug("Created unique index on users.user_id")
+        except Exception as e:
+            logger.debug(f"Index user_id_unique already exists or error: {e}")
         
         # Index on GSTIN for quick lookups
-        await users.create_index("gstin", name="gstin_idx")
-        logger.debug("Created index on users.gstin")
+        try:
+            await users.create_index("gstin", name="gstin_idx")
+            logger.debug("Created index on users.gstin")
+        except Exception as e:
+            logger.debug(f"Index gstin_idx already exists or error: {e}")
         
         # Index on current_state for state-based queries
-        await users.create_index("current_state", name="current_state_idx")
-        logger.debug("Created index on users.current_state")
+        try:
+            await users.create_index("current_state", name="current_state_idx")
+            logger.debug("Created index on users.current_state")
+        except Exception as e:
+            logger.debug(f"Index current_state_idx already exists or error: {e}")
         
         # Index on last_interaction for session expiry queries
-        await users.create_index("last_interaction", name="last_interaction_idx")
-        logger.debug("Created index on users.last_interaction")
+        try:
+            await users.create_index("last_interaction", name="last_interaction_idx")
+            logger.debug("Created index on users.last_interaction")
+        except Exception as e:
+            logger.debug(f"Index last_interaction_idx already exists or error: {e}")
         
         # Compound index for user + state queries
-        await users.create_index(
-            [("user_id", 1), ("current_state", 1)],
-            name="user_state_idx"
-        )
-        logger.debug("Created compound index on users.user_id + current_state")
+        try:
+            await users.create_index(
+                [("user_id", 1), ("current_state", 1)],
+                name="user_state_idx"
+            )
+            logger.debug("Created compound index on users.user_id + current_state")
+        except Exception as e:
+            logger.debug(f"Index user_state_idx already exists or error: {e}")
         
         # Index on created_at for analytics
-        await users.create_index("created_at", name="created_at_idx")
-        logger.debug("Created index on users.created_at")
+        try:
+            await users.create_index("created_at", name="created_at_idx")
+            logger.debug("Created index on users.created_at")
+        except Exception as e:
+            logger.debug(f"Index created_at_idx already exists or error: {e}")
         
         # TTL index to automatically delete expired sessions after 30 days
-        await users.create_index(
-            "last_interaction",
-            expireAfterSeconds=2592000,  # 30 days
-            name="session_ttl_idx"
-        )
-        logger.debug("Created TTL index on users.last_interaction")
+        try:
+            await users.create_index(
+                "last_interaction",
+                expireAfterSeconds=2592000,  # 30 days
+                name="session_ttl_idx"
+            )
+            logger.debug("Created TTL index on users.last_interaction")
+        except Exception as e:
+            logger.debug(f"Index session_ttl_idx already exists or error: {e}")
         
         # ==============================================
         # FILING ATTEMPTS COLLECTION INDEXES
         # ==============================================
         
         # Compound index on user_id + created_at for user's filing history
-        await filings.create_index(
-            [("user_id", 1), ("created_at", -1)],
-            name="user_filings_idx"
-        )
-        logger.debug("Created compound index on filing_attempts.user_id + created_at")
+        try:
+            await filings.create_index(
+                [("user_id", 1), ("created_at", -1)],
+                name="user_filings_idx"
+            )
+            logger.debug("Created compound index on filing_attempts.user_id + created_at")
+        except Exception as e:
+            logger.debug(f"Index user_filings_idx already exists or error: {e}")
         
         # Index on GSTIN for lookups by business
-        await filings.create_index("gstin", name="filing_gstin_idx")
-        logger.debug("Created index on filing_attempts.gstin")
+        try:
+            await filings.create_index("gstin", name="filing_gstin_idx")
+            logger.debug("Created index on filing_attempts.gstin")
+        except Exception as e:
+            logger.debug(f"Index filing_gstin_idx already exists or error: {e}")
         
         # Index on status for filtering active/completed filings
-        await filings.create_index("status", name="filing_status_idx")
-        logger.debug("Created index on filing_attempts.status")
+        try:
+            await filings.create_index("status", name="filing_status_idx")
+            logger.debug("Created index on filing_attempts.status")
+        except Exception as e:
+            logger.debug(f"Index filing_status_idx already exists or error: {e}")
         
         # Compound index on GSTIN + period for duplicate detection
-        await filings.create_index(
-            [("gstin", 1), ("gst_type", 1), ("period", 1)],
-            name="filing_uniqueness_idx"
-        )
-        logger.debug("Created compound index on filing_attempts.gstin + gst_type + period")
+        try:
+            await filings.create_index(
+                [("gstin", 1), ("gst_type", 1), ("period", 1)],
+                name="filing_uniqueness_idx"
+            )
+            logger.debug("Created compound index on filing_attempts.gstin + gst_type + period")
+        except Exception as e:
+            logger.debug(f"Index filing_uniqueness_idx already exists or error: {e}")
         
         # Index on created_at for time-based queries
-        await filings.create_index("created_at", name="filing_created_idx")
-        logger.debug("Created index on filing_attempts.created_at")
+        try:
+            await filings.create_index("created_at", name="filing_created_idx")
+            logger.debug("Created index on filing_attempts.created_at")
+        except Exception as e:
+            logger.debug(f"Index filing_created_idx already exists or error: {e}")
         
         # Index on completed_at for analytics
-        await filings.create_index("completed_at", name="filing_completed_idx")
-        logger.debug("Created index on filing_attempts.completed_at")
+        try:
+            await filings.create_index("completed_at", name="filing_completed_idx")
+            logger.debug("Created index on filing_attempts.completed_at")
+        except Exception as e:
+            logger.debug(f"Index filing_completed_idx already exists or error: {e}")
         
         # TTL index to automatically delete old filing attempts after 90 days
-        await filings.create_index(
-            "created_at",
-            expireAfterSeconds=7776000,  # 90 days
-            name="filing_ttl_idx"
-        )
-        logger.debug("Created TTL index on filing_attempts.created_at")
-        
-        # ==============================================
-        # SESSIONS COLLECTION INDEXES
-        # ==============================================
-        
-        # Unique index on session_id
-        await sessions.create_index("session_id", unique=True, name="session_id_unique")
-        logger.debug("Created unique index on sessions.session_id")
-        
-        # Index on user_id for user session lookups
-        await sessions.create_index("user_id", name="session_user_idx")
-        logger.debug("Created index on sessions.user_id")
-        
-        # TTL index to automatically delete expired sessions after 1 hour
-        await sessions.create_index(
-            "expires_at",
-            expireAfterSeconds=0,  # Delete when expires_at is reached
-            name="session_expiry_ttl_idx"
-        )
-        logger.debug("Created TTL index on sessions.expires_at")
-        
-        # Index on created_at for analytics
-        await sessions.create_index("created_at", name="session_created_idx")
-        logger.debug("Created index on sessions.created_at")
+        try:
+            await filings.create_index(
+                "created_at",
+                expireAfterSeconds=7776000,  # 90 days
+                name="filing_ttl_idx"
+            )
+            logger.debug("Created TTL index on filing_attempts.created_at")
+        except Exception as e:
+            logger.debug(f"Index filing_ttl_idx already exists or error: {e}")
         
         logger.info("✅ All database indexes created successfully")
         
         # Log index statistics
         user_indexes = await users.index_information()
         filing_indexes = await filings.index_information()
-        session_indexes = await sessions.index_information()
         
         logger.info(
             f"Index summary: Users={len(user_indexes)}, "
-            f"Filings={len(filing_indexes)}, "
-            f"Sessions={len(session_indexes)}"
+            f"Filings={len(filing_indexes)}"
         )
         
     except Exception as e:
@@ -161,14 +175,12 @@ async def drop_all_indexes():
     try:
         users = get_users_collection()
         filings = get_filing_attempts_collection()
-        sessions = get_sessions_collection()
         
         logger.warning("Dropping all database indexes...")
         
         # Drop all indexes except _id
         await users.drop_indexes()
         await filings.drop_indexes()
-        await sessions.drop_indexes()
         
         logger.info("✅ All indexes dropped successfully")
         

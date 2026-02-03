@@ -10,7 +10,7 @@ Purpose: Session and state management
 - Rate limiting and abuse prevention
 """
 
-from app.db.mongo import get_users_collection, get_sessions_collection
+from app.db.mongo import get_users_collection
 from app.flow.states import ConversationState, is_valid_transition, get_state_metadata
 from app.core.config import settings
 from app.core.logging import get_logger, LogContext
@@ -312,7 +312,7 @@ async def check_rate_limit(user_id: str, limit_type: str = "messages") -> Dict[s
     Returns:
         Dict with allowed (bool), remaining (int), reset_at (datetime)
     """
-    sessions = get_sessions_collection()
+    users = get_users_collection()
     
     # Define limits based on type
     limits = {

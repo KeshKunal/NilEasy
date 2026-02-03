@@ -18,6 +18,43 @@ from typing import Optional, Dict, Any
 logger = get_logger(__name__)
 
 
+async def create_user(phone: str, name: str) -> Dict[str, Any]:
+    """
+    Creates a new user with phone and name.
+    
+    Args:
+        phone: Phone number (E.164 format: +919876543210)
+        name: User's display name
+    
+    Returns:
+        Created user document
+    """
+    users = get_users_collection()
+    
+    user_doc = {
+        "phone": phone,
+        "name": name,
+        "gstin": None,
+        "legal_name": None,
+        "trade_name": None,
+        "business_name": None,
+        "business_address": None,
+        "constitution": None,
+        "business_activities": None,
+        "registration_date": None,
+        "gst_type": None,
+        "current_state": ConversationState.WELCOME.value,
+        "session_data": {},
+        "created_at": datetime.utcnow(),
+        "last_active": datetime.utcnow()
+    }
+    
+    await users.insert_one(user_doc)
+    logger.info(f"Created new user: {phone}")
+    
+    return user_doc
+
+
 async def get_or_create_user(user_id: str) -> Dict[str, Any]:
     """
     Retrieves an existing user or creates a new one.
@@ -67,6 +104,20 @@ async def get_or_create_user(user_id: str) -> Dict[str, Any]:
             )
         
         return user
+
+
+async def get_user_by_phone(phone: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a user by phone number.
+    
+    Args:
+        phone: Phone number (E.164 format: +919876543210)
+    
+    Returns:
+        User document or None if not found
+    """
+    users = get_users_collection()
+    return await users.find_one({"phone": phone})
 
 
 async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:

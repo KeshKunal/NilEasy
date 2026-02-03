@@ -97,11 +97,6 @@ async def close_mongo_connection():
 
 async def check_database_health() -> bool:
     """
-    Performs a health check on the database connection.
-
-
-async def check_database_health() -> bool:
-    """
     Checks if the database connection is healthy.
     
     Returns:
