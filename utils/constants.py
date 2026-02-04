@@ -14,27 +14,35 @@ Purpose: Centralized static content
 # WELCOME & ONBOARDING
 # ============================================================
 
-WELCOME_MESSAGE = """👋 *Welcome to NilEasy!*
+WELCOME_MESSAGE = """👋 *Welcome to GSTBuddy!*
 
-We'll help you file your GST Nil return in just *5-8 minutes* through a simple SMS process.
+I’ll help you file your NIL GST return using the official GST SMS method.
 
-🔒 Your data is secure
-⚡ Fast and hassle-free
-✅ Official GST portal method
+It’s *Quick* and *Simple*:
+1️⃣ Verify your GSTIN
+2️⃣ Choose return type & period
+3️⃣ Tap and send a pre-filled SMS
+That's it!
 
-Ready to get started?"""
+Let’s get started 😊
 
-WELCOME_FIRST_TIME_MESSAGE = """👋 *Hello! Welcome to NilEasy!*
+Please enter your *15-digit GSTIN*.
+Example: 27ABCDE9603R1ZM"""
 
-I'm here to make GST Nil filing super easy for you.
+WELCOME_FIRST_TIME_MESSAGE = """👋 *Welcome to GSTBuddy!*
 
-*Here's how it works:*
-1️⃣ I'll verify your GSTIN
-2️⃣ You select return type and period
-3️⃣ Send a simple SMS to GST portal
-4️⃣ Done! ✅
+I’ll help you file your NIL GST return using the official GST SMS method.
 
-Takes less than 10 minutes. Shall we begin?"""
+It’s *Quick* and *Simple*:
+1️⃣ Verify your GSTIN
+2️⃣ Choose return type & period
+3️⃣ Tap and send a pre-filled SMS
+That's it!
+
+Let’s get started 😊
+
+Please enter your *15-digit GSTIN*.
+Example: 27ABCDE9603R1ZM"""
 
 HOW_IT_WORKS_MESSAGE = """📚 *How Nil Filing Works:*
 
