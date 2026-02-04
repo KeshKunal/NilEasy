@@ -132,40 +132,9 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 
-# Error handler for unexpected exceptions
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """
-    Global exception handler to catch unexpected errors.
-    """
-    logger.error(
-        f"Unhandled exception: {str(exc)}",
-        extra={
-            "method": request.method,
-            "url": str(request.url),
-            "client": request.client.host if request.client else "unknown"
-        },
-        exc_info=True
-    )
-    
-    # Don't expose internal errors in production
-    if settings.is_production:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "An internal error occurred. Please try again later.",
-                "code": "INTERNAL_ERROR"
-            }
-        )
-    else:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": str(exc),
-                "type": type(exc).__name__,
-                "code": "INTERNAL_ERROR"
-            }
-        )
+# Register centralized exception handlers
+from app.core.errors import add_exception_handlers
+add_exception_handlers(app)
 
 
 # Register API routes
