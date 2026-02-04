@@ -5,11 +5,11 @@ Purpose: User data management
 
 - Create or update user records
 - User retrieval and management
+- Analytics and filing tracking
 - Uses phone number as primary identifier
 """
 
-from app.db.mongo import get_users_collection
-from app.flow.states import ConversationState
+from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.logging import get_logger
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -17,177 +17,171 @@ from typing import Optional, Dict, Any
 logger = get_logger(__name__)
 
 
-async def create_user(phone: str, name: str = None) -> Dict[str, Any]:
+class UserService:
     """
-    Creates a new user with phone and name.
-    
-    Args:
-        phone: Phone number (E.164 format: +919876543210)
-        name: User's display name (optional)
-    
-    Returns:
-        Created user document
+    Enhanced user service for AiSensy integration.
+    Handles user creation, updates, and analytics tracking.
     """
-    users = get_users_collection()
     
-    # Check if user already exists
-    existing = await users.find_one({"phone": phone})
-    if existing:
-        logger.info(f"User already exists: {phone}")
-        return existing
-    
-    user_doc = {
-        "phone": phone,
-        "name": name or "User",
-        "gstin": None,
-        "legal_name": None,
-        "trade_name": None,
-        "business_address": None,
-        "constitution": None,
-        "business_activities": None,
-        "registration_date": None,
-        "current_state": ConversationState.WELCOME.value,
-        "session_data": {},
-        "filing_history": [],
-        "total_filings": 0,
-        "created_at": datetime.utcnow(),
-        "last_active": datetime.utcnow()
-    }
-    
-    await users.insert_one(user_doc)
-    logger.info(f"Created new user: {phone}")
-    
-    return user_doc
-
-
-async def get_user_by_phone(phone: str) -> Optional[Dict[str, Any]]:
+    def __init__(self, db: AsyncIOMotorDatabase):
+        """Initialize with database connection."""
+        self.db = db
+        self.users = db.users
+        self.filings = db.filings
+class UserService:
     """
-    Retrieves a user by phone number.
-    
-    Args:
-        phone: Phone number (E.164 format: +919876543210)
-    
-    Returns:
-        User document or None if not found
+    Enhanced user service for AiSensy integration.
+    Handles user creation, updates, and analytics tracking.
     """
-    users = get_users_collection()
-    return await users.find_one({"phone": phone})
-
-
-async def update_user(phone: str, updates: Dict[str, Any]) -> bool:
-    """
-    Updates user document.
     
-    Args:
-        phone: Phone number
-        updates: Fields to update
+    def __init__(self, db: AsyncIOMotorDatabase):
+        """Initialize with database connection."""
+        self.db = db
+        self.users = db.users
+        self.filings = db.filings
     
-    Returns:
-        True if successful
-    """
-    users = get_users_collection()
+    async def get_or_create_user(self, phone: str, name: str = None) -> Dict[str, Any]:
+        """
+        Get existing user or create new one.
+        
+        Args:
+            phone: Phone number (primary identifier)
+            name: User's display name (optional)
+        
+        Returns:
+            User document
+        """
+        # Try to get existing user
+        user = await self.users.find_one({"phone": phone})
+        
+        if user:
+            # Update last active
+            await self.users.update_one(
+                {"phone": phone},
+                {"$set": {"last_active": datetime.utcnow()}}
+            )
+            logger.info(f"Retrieved existing user: {phone}")
+            return user
+        
+        # Create new user
+        user_doc = {
+            "phone": phone,
+            "name": name or "User",
+            "gstin": None,
+            "business_name": None,
+            "legal_name": None,
+            "state": None,
+            "created_at": datetime.utcnow(),
+            "last_active": datetime.utcnow(),
+            "total_filings": 0,
+            "successful_filings": 0,
+            "failed_filings": 0
+        }
+        
+        await self.users.insert_one(user_doc)
+        logger.info(f"Created new user: {phone}")
+        
+        return user_doc
     
-    # Always update last_active
-    updates["last_active"] = datetime.utcnow()
+    async def update_or_create_user(
+        self, 
+        user_id: str, 
+        gstin: str = None,
+        last_filing_status: str = None
+    ) -> bool:
+        """
+        Update existing user or create new one with analytics.
+        
+        Args:
+            user_id: Phone number
+            gstin: GSTIN to store
+            last_filing_status: 'completed' or 'failed'
+        
+        Returns:
+            True if successful
+        """
+        updates = {
+            "last_active": datetime.utcnow()
+        }
+        
+        if gstin:
+            updates["gstin"] = gstin
+        
+        # Update filing counters
+        if last_filing_status == 'completed':
+            result = await self.users.update_one(
+                {"phone": user_id},
+                {
+                    "$set": updates,
+                    "$inc": {
+                        "total_filings": 1,
+                        "successful_filings": 1
+                    }
+                },
+                upsert=True
+            )
+        elif last_filing_status == 'failed':
+            result = await self.users.update_one(
+                {"phone": user_id},
+                {
+                    "$set": updates,
+                    "$inc": {
+                        "total_filings": 1,
+                        "failed_filings": 1
+                    }
+                },
+                upsert=True
+            )
+        else:
+            result = await self.users.update_one(
+                {"phone": user_id},
+                {"$set": updates},
+                upsert=True
+            )
+        
+        logger.info(f"Updated user: {user_id}, Status: {last_filing_status}")
+        return result.modified_count > 0 or result.upserted_id is not None
     
-    result = await users.update_one(
-        {"phone": phone},
-        {"$set": updates}
-    )
+    async def get_user_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve user by phone number.
+        
+        Args:
+            phone: Phone number
+        
+        Returns:
+            User document or None
+        """
+        return await self.users.find_one({"phone": phone})
     
-    return result.modified_count > 0
-
-
-async def update_user_state(phone: str, new_state: ConversationState) -> bool:
-    """
-    Updates user's conversation state.
-    
-    Args:
-        phone: Phone number
-        new_state: New conversation state
-    
-    Returns:
-        True if successful
-    """
-    return await update_user(phone, {
-        "current_state": new_state.value
-    })
-
-
-async def update_session_data(phone: str, session_data: Dict[str, Any]) -> bool:
-    """
-    Updates user's session data (merges with existing).
-    
-    Args:
-        phone: Phone number
-        session_data: Session data to merge
-    
-    Returns:
-        True if successful
-    """
-    users = get_users_collection()
-    
-    # Build $set operations for nested session_data
-    set_ops = {
-        f"session_data.{key}": value 
-        for key, value in session_data.items()
-    }
-    set_ops["last_active"] = datetime.utcnow()
-    
-    result = await users.update_one(
-        {"phone": phone},
-        {"$set": set_ops}
-    )
-    
-    return result.modified_count > 0
-
-
-async def reset_session(phone: str) -> bool:
-    """
-    Resets user's session data and state.
-    
-    Args:
-        phone: Phone number
-    
-    Returns:
-        True if successful
-    """
-    users = get_users_collection()
-    
-    result = await users.update_one(
-        {"phone": phone},
-        {
-            "$set": {
-                "current_state": ConversationState.WELCOME.value,
-                "session_data": {},
-                "last_active": datetime.utcnow()
+    async def get_user_stats(self, phone: str) -> Dict[str, Any]:
+        """
+        Get user's filing statistics.
+        
+        Args:
+            phone: Phone number
+        
+        Returns:
+            Statistics dictionary
+        """
+        user = await self.get_user_by_phone(phone)
+        
+        if not user:
+            return {
+                "total_filings": 0,
+                "successful_filings": 0,
+                "failed_filings": 0,
+                "success_rate": 0.0
             }
+        
+        total = user.get("total_filings", 0)
+        successful = user.get("successful_filings", 0)
+        success_rate = (successful / total * 100) if total > 0 else 0.0
+        
+        return {
+            "total_filings": total,
+            "successful_filings": successful,
+            "failed_filings": user.get("failed_filings", 0),
+            "success_rate": round(success_rate, 2)
         }
-    )
-    
-    return result.modified_count > 0
 
-
-async def add_filing_to_history(phone: str, filing_data: Dict[str, Any]) -> bool:
-    """
-    Adds a filing record to user's history.
-    
-    Args:
-        phone: Phone number
-        filing_data: Filing details
-    
-    Returns:
-        True if successful
-    """
-    users = get_users_collection()
-    
-    result = await users.update_one(
-        {"phone": phone},
-        {
-            "$push": {"filing_history": filing_data},
-            "$inc": {"total_filings": 1},
-            "$set": {"last_active": datetime.utcnow()}
-        }
-    )
-    
-    return result.modified_count > 0

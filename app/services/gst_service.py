@@ -171,6 +171,9 @@ class GSTService:
                 
                 data = response.json()
                 
+                # Log the raw response for debugging
+                logger.info(f"GST Portal Response: {data}")
+                
                 # Check for errors in response
                 if "error" in data or data.get("sts") == "E":
                     error_msg = data.get("error", data.get("errorMsg", "Verification failed"))
@@ -212,19 +215,30 @@ class GSTService:
     def _extract_business_details(self, gstin: str, data: Dict) -> Dict[str, Any]:
         """Extract business details from GST response."""
         
-        # Handle address extraction
-        state = "N/A"
+        # Handle address extraction - GST portal returns complex address structure
+        address = "N/A"
         if isinstance(data.get("pradr"), dict):
-            addr = data["pradr"].get("addr", {})
-            if isinstance(addr, dict):
-                state = addr.get("stcd", "N/A")
+            addr_data = data["pradr"].get("adr", "")
+            # Sometimes adr is a string, sometimes it's nested
+            if isinstance(addr_data, str):
+                address = addr_data
+            elif isinstance(addr_data, dict):
+                # Build address from components
+                parts = []
+                for key in ['bno', 'bnm', 'st', 'loc', 'dst', 'stcd', 'pncd']:
+                    if addr_data.get(key):
+                        parts.append(str(addr_data[key]))
+                address = ', '.join(parts) if parts else "N/A"
+            # Fallback: try to get the address string directly
+            if address == "N/A" and data["pradr"].get("addr"):
+                address = data["pradr"]["addr"].get("adr", "N/A")
         
         return {
             "gstin": gstin.upper(),
             "trade_name": data.get("tradeNam", "N/A"),
             "legal_name": data.get("lgnm", "N/A"),
             "status": data.get("sts", "N/A"),
-            "state": state,
+            "address": address,
             "registration_date": data.get("rgdt", "N/A"),
             "taxpayer_type": data.get("dty", "N/A"),
             "constitution": data.get("ctb", "N/A"),

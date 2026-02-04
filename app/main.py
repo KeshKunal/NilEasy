@@ -21,7 +21,6 @@ from app.core.logging import setup_logging, get_logger
 from app.db.mongo import connect_to_mongo, close_mongo_connection, check_database_health
 from app.db.indexes import create_indexes
 from app.services.gst_service import close_gst_service
-from app.api import webhook
 
 # Initialize logging first
 setup_logging()
@@ -170,10 +169,55 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Register API routes
-from app.api import otp_callback
+from app.api import aisensy
+from fastapi.responses import Response
 
-app.include_router(webhook.router, prefix=settings.API_PREFIX, tags=["Webhook"])
-app.include_router(otp_callback.router, tags=["OTP Callback"])
+# Use the same GST service instance from aisensy module
+from app.api.aisensy import gst_service as gst_service_instance
+
+# AiSensy API endpoints (replaces Twilio webhook)
+app.include_router(aisensy.router, tags=["AiSensy"])
+
+
+# Captcha serving endpoint
+@app.get("/api/v1/captcha/{user_id}", tags=["Captcha"])
+async def serve_captcha(user_id: str):
+    """
+    Serves the captcha image for a specific user session.
+    
+    Args:
+        user_id: User ID (typically GSTIN) used when fetching captcha
+        
+    Returns:
+        PNG image of the captcha
+    """
+    try:
+        # Get captcha image from GST service
+        captcha_data = gst_service_instance.get_captcha_image(user_id)
+        
+        if not captcha_data:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Captcha not found or expired. Please request a new one."}
+            )
+        
+        # Return PNG image
+        return Response(
+            content=captcha_data,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error serving captcha: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Failed to serve captcha"}
+        )
 
 
 # Root endpoint

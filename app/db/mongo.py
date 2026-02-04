@@ -116,7 +116,7 @@ async def check_database_health() -> bool:
         return False
 
 
-def get_database() -> AsyncIOMotorDatabase:
+async def get_database() -> AsyncIOMotorDatabase:
     """
     Returns the MongoDB database instance.
     
