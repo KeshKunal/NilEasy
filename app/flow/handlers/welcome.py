@@ -47,21 +47,20 @@ async def handle_welcome(user_id: str, message: str, **kwargs) -> Dict[str, Any]
         )
         
         # Send welcome message
-        welcome_text = """👋 *Welcome to NilEasy!*
+        welcome_text = """👋 *Welcome to GSTBuddy!*
 
-I'll help you file NIL returns for your GST registration quickly and easily.
+I’ll help you file your NIL GST return using the official GST SMS method.
 
-The process takes just 2-3 minutes:
+It’s *Quick* and *Simple*:
 1️⃣ Verify your GSTIN
-2️⃣ Solve a simple captcha
-3️⃣ Select GST type & period
-4️⃣ Get OTP link
-5️⃣ Submit OTP
-6️⃣ Done! ✅
+2️⃣ Choose return type & period
+3️⃣ Tap and send a pre-filled SMS
+That's it!
 
-Let's get started! Please enter your *15-digit GSTIN*.
+Let’s get started 😊
 
-Example: 27AABCU9603R1ZM"""
+Please enter your *15-digit GSTIN*.
+Example: 27ABCDE9603R1ZM"""
         
         logger.info("Welcome message sent successfully")
         
