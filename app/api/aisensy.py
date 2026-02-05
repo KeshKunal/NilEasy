@@ -38,6 +38,7 @@ from app.services.gst_service import GSTService
 from app.services.sms_link_service import SMSLinkService
 from app.services.user_service import UserService
 from app.db.mongo import get_database
+from app.core.config import settings
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
             )
         
         # Build captcha URL using the captcha endpoint
-        captcha_url = f"http://localhost:8001/api/v1/captcha/{result['image']}"
+        captcha_url = f"{settings.APP_URL}/api/v1/captcha/{result['image']}"
         
         logger.info(f"Captcha fetched successfully for {gstin}")
         return ValidateGSTINResponse(
