@@ -302,12 +302,14 @@ if __name__ == "__main__":
     import uvicorn
     import os
     
+    # Railway provides PORT environment variable
     port = int(os.getenv("PORT", 8001))
     
+    # Use 0.0.0.0 to accept external connections (Railway requirement)
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0", 
-        port=port,      
-        reload=settings.is_development,
+        port=port,
+        reload=False,  # Disable reload in production
         log_level=settings.LOG_LEVEL.lower()
     )
