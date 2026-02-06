@@ -184,4 +184,64 @@ class UserService:
             "failed_filings": user.get("failed_filings", 0),
             "success_rate": round(success_rate, 2)
         }
+    
+    async def get_gstin_details(self, gstin: str) -> Optional[Dict[str, Any]]:
+        """
+        Get cached GSTIN business details from users collection.
+        
+        Args:
+            gstin: 15-character GSTIN
+        
+        Returns:
+            GST business details or None if not found
+        """
+        user = await self.users.find_one(
+            {"gst_data.gstin": gstin},
+            {"gst_data": 1}
+        )
+        
+        if user and "gst_data" in user:
+            logger.info(f"GSTIN cache hit for: {gstin}")
+            return user["gst_data"]
+        
+        logger.debug(f"GSTIN cache miss for: {gstin}")
+        return None
+    
+    async def store_gst_data(
+        self,
+        phone: str,
+        gst_data: Dict[str, Any],
+        business_name: str = None
+    ) -> bool:
+        """
+        Store complete GST data in users collection after verification.
+        
+        Args:
+            phone: User's phone number
+            gst_data: Complete GST data from portal (all fields)
+            business_name: Business name for quick access
+        
+        Returns:
+            True if stored successfully
+        """
+        updates = {
+            "gst_data": gst_data,
+            "gstin": gst_data.get("gstin"),
+            "business_name": business_name or gst_data.get("tradeNam"),
+            "legal_name": gst_data.get("lgnm"),
+            "gst_verified_at": datetime.utcnow(),
+            "last_active": datetime.utcnow()
+        }
+        
+        result = await self.users.update_one(
+            {"phone": phone},
+            {"$set": updates},
+            upsert=True
+        )
+        
+        logger.info(
+            f"Stored GST data for phone: {phone}, GSTIN: {gst_data.get('gstin')}"
+        )
+        
+        return result.acknowledged
 

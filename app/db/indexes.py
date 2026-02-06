@@ -62,6 +62,13 @@ async def create_indexes():
         except Exception as e:
             logger.debug(f"Index created_at_idx already exists: {str(e)}")
         
+        # Index on gst_data.gstin for GSTIN-based cache lookups
+        try:
+            await users.create_index("gst_data.gstin", name="gst_data_gstin_idx", sparse=True)
+            logger.info("✅ Created index on users.gst_data.gstin")
+        except Exception as e:
+            logger.debug(f"Index gst_data_gstin_idx already exists: {str(e)}")
+        
         # ==============================================
         # FILINGS COLLECTION INDEXES
         # ==============================================
@@ -106,26 +113,6 @@ async def create_indexes():
             logger.info("✅ Created index on filings.timestamp")
         except Exception as e:
             logger.debug(f"Index timestamp_idx already exists: {str(e)}")
-        
-        # ==============================================
-        # GSTIN CACHE COLLECTION INDEXES
-        # ==============================================
-        
-        gstin_cache = db.gstin_cache
-        
-        # Unique index on gstin (one cache entry per GSTIN)
-        try:
-            await gstin_cache.create_index("gstin", unique=True, name="gstin_cache_unique")
-            logger.info("✅ Created unique index on gstin_cache.gstin")
-        except Exception as e:
-            logger.debug(f"Index gstin_cache_unique already exists: {str(e)}")
-        
-        # Index on updated_at for cache expiry queries
-        try:
-            await gstin_cache.create_index("updated_at", name="cache_updated_idx")
-            logger.info("✅ Created index on gstin_cache.updated_at")
-        except Exception as e:
-            logger.debug(f"Index cache_updated_idx already exists: {str(e)}")
         
         logger.info("🎉 All database indexes created successfully")
         
