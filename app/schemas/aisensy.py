@@ -6,7 +6,7 @@ These schemas ensure type safety and automatic validation for all API endpoints.
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
+from typing import Optional, Union
 import re
 
 
@@ -33,9 +33,9 @@ class ValidateGSTINRequest(BaseModel):
 class ValidateGSTINResponse(BaseModel):
     """Response schema for GSTIN validation endpoint."""
     
-    valid: bool = Field(..., description="Whether GSTIN format is valid")
-    captcha_url: Optional[str] = Field(default=None, description="URL to fetch captcha image")
-    session_id: Optional[str] = Field(default=None, description="Session ID for captcha verification")
+    valid: Union[bool, str] = Field(..., description="Whether GSTIN format is valid or 'found'")
+    captcha_url: Optional[str] = Field(default=None, description="URL to fetch captcha image OR Business Name if found")
+    session_id: Optional[str] = Field(default=None, description="Session ID OR Address if found")
     error: Optional[str] = Field(default=None, description="Error message if validation failed")
 
 

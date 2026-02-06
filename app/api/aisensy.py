@@ -125,6 +125,18 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
                 valid=False,
                 error=error_msg
             )
+            
+        # Check if GSTIN already exists in DB
+        user_service = await get_user_service()
+        existing_user = await user_service.get_user_by_gstin(gstin)
+        
+        if existing_user and existing_user.get("business_name"):
+            logger.info(f"GSTIN found in database: {gstin}")
+            return ValidateGSTINResponse(
+                valid="found",
+                captcha_url=existing_user.get("business_name"),
+                session_id=existing_user.get("address")
+            )
         
         # Record attempt
         record_attempt(gstin)
@@ -218,9 +230,19 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
             gstin=request.gstin
         )
         
+        # Save business details to user
+        user_service = await get_user_service()
+        await user_service.update_or_create_user(
+            user_id=request.gstin,  # Using GSTIN as temp ID until phone is known
+            gstin=request.gstin,
+            business_name=business_details.business_name,
+            address=business_details.address
+        )
+        
         return VerifyCaptchaResponse(
             success=True,
-            business_details=business_details
+            business_details=business_details,
+            # We don't send error here
         )
         
     except Exception as e:

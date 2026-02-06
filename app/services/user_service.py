@@ -120,7 +120,9 @@ class UserService:
         self, 
         user_id: str, 
         gstin: str = None,
-        last_filing_status: str = None
+        last_filing_status: str = None,
+        business_name: str = None,
+        address: str = None
     ) -> bool:
         """
         Update existing user or create new one with analytics.
@@ -129,6 +131,8 @@ class UserService:
             user_id: Phone number
             gstin: GSTIN to store
             last_filing_status: 'completed' or 'failed'
+            business_name: Trade name
+            address: Business address
         
         Returns:
             True if successful
@@ -139,6 +143,10 @@ class UserService:
         
         if gstin:
             updates["gstin"] = gstin
+        if business_name:
+            updates["business_name"] = business_name
+        if address:
+            updates["address"] = address
         
         # Update filing counters
         if last_filing_status == 'completed':
@@ -174,6 +182,10 @@ class UserService:
         
         logger.info(f"Updated user: {user_id}, Status: {last_filing_status}")
         return result.modified_count > 0 or result.upserted_id is not None
+    
+    async def get_user_by_gstin(self, gstin: str) -> Optional[Dict[str, Any]]:
+        """Find user by GSTIN."""
+        return await self.users.find_one({"gstin": gstin})
     
     async def get_user_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
         """
