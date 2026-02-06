@@ -128,15 +128,22 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
             
         # Check if GSTIN already exists in DB
         user_service = await get_user_service()
+        logger.info(f"Checking DB for existing GSTIN: {gstin}")
         existing_user = await user_service.get_user_by_gstin(gstin)
         
-        if existing_user and existing_user.get("business_name"):
-            logger.info(f"GSTIN found in database: {gstin}")
-            return ValidateGSTINResponse(
-                valid="found",
-                captcha_url=existing_user.get("business_name"),
-                session_id=existing_user.get("address")
-            )
+        if existing_user:
+            logger.info(f"Found user for GSTIN {gstin}: {existing_user.get('_id')}")
+            if existing_user.get("business_name"):
+                logger.info(f"GSTIN found in database with business name: {existing_user.get('business_name')}")
+                return ValidateGSTINResponse(
+                    valid="found",
+                    captcha_url=existing_user.get("business_name"),
+                    session_id=existing_user.get("address")
+                )
+            else:
+                logger.warning(f"User found for GSTIN {gstin} but no business_name present")
+        else:
+            logger.info(f"No existing user found for GSTIN: {gstin}")
         
         # Record attempt
         record_attempt(gstin)
@@ -231,13 +238,15 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
         )
         
         # Save business details to user
+        logger.info(f"Saving business details for GSTIN {request.gstin} to DB")
         user_service = await get_user_service()
-        await user_service.update_or_create_user(
+        saved = await user_service.update_or_create_user(
             user_id=request.gstin,  # Using GSTIN as temp ID until phone is known
             gstin=request.gstin,
             business_name=business_details.business_name,
             address=business_details.address
         )
+        logger.info(f"Business details saved: {saved}")
         
         return VerifyCaptchaResponse(
             success=True,
