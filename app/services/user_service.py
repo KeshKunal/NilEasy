@@ -39,6 +39,39 @@ class UserService:
         self.db = db
         self.users = db.users
         self.filings = db.filings
+        self.filing_contexts = db.filing_contexts
+    
+    async def save_filing_context(
+        self,
+        gstin: str,
+        gst_type: str,
+        period: str
+    ) -> bool:
+        """
+        Save temporary filing context for a GSTIN.
+        This allows us to track completion later without asking the user for these details again.
+        """
+        try:
+            await self.filing_contexts.update_one(
+                {"gstin": gstin},
+                {
+                    "$set": {
+                        "gst_type": gst_type,
+                        "period": period,
+                        "updated_at": datetime.utcnow()
+                    }
+                },
+                upsert=True
+            )
+            logger.info(f"Saved filing context for {gstin}: {gst_type}, {period}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save filing context: {e}")
+            return False
+
+    async def get_filing_context(self, gstin: str) -> Optional[Dict[str, Any]]:
+        """Retrieve filing context for a GSTIN."""
+        return await self.filing_contexts.find_one({"gstin": gstin})
     
     async def get_or_create_user(self, phone: str, name: str = None) -> Dict[str, Any]:
         """

@@ -264,8 +264,16 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
         # Generate deep link
         result = await sms_service.create_sms_deep_link(
             sms_text=sms_text,
-            phone_number="14409",  # GST filing number
+        phone_number="14409",  # GST filing number
             user_phone=""  # Not needed for this flow
+        )
+        
+        # Save filing context for later tracking
+        user_service = await get_user_service()
+        await user_service.save_filing_context(
+            gstin=request.gstin,
+            gst_type=request.gst_type,
+            period=request.period
         )
         
         # sms_link_service returns {"success": bool, "short_url": str, ...}
@@ -330,15 +338,26 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
             f"GSTIN: {request.gstin}, Status: {request.status}"
         )
         
+        
         # Get user service
         user_service = await get_user_service()
+        
+        # Retrieve filing context
+        context = await user_service.get_filing_context(request.gstin)
+        
+        # Default values if context is missing (should not happen in normal flow)
+        gst_type = context.get('gst_type') if context else 'UNKNOWN'
+        period = context.get('period') if context else 'UNKNOWN'
+        
+        if not context:
+            logger.warning(f"Filing context missing for GSTIN: {request.gstin}")
         
         # Record filing attempt in database
         filing_data = {
             'phone': request.phone,
             'gstin': request.gstin,
-            'gst_type': request.gst_type,
-            'period': request.period,
+            'gst_type': gst_type,
+            'period': period,
             'status': request.status,
             'timestamp': datetime.now()
         }

@@ -114,8 +114,6 @@ class TrackCompletionRequest(BaseModel):
     
     phone: str = Field(..., description="User's phone number")
     gstin: str = Field(..., min_length=15, max_length=15, description="GSTIN")
-    gst_type: str = Field(..., description="GST return type")
-    period: str = Field(..., min_length=6, max_length=6, description="Period in MMYYYY")
     status: str = Field(..., description="Filing status: 'completed' or 'failed'")
     
     @field_validator('status')
