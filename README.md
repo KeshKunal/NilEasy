@@ -20,8 +20,7 @@ Server will start at `http://localhost:8001`
 
 ## 📋 Architecture Overview
 
-**Current Architecture**: Stateless API endpoints for AiSensy Flow Builder  
-**Previous Architecture**: Twilio webhook-driven (deprecated)
+Stateless API endpoints for AiSensy Flow Builder  
 
 ### AiSensy Integration Flow
 
@@ -144,8 +143,6 @@ API_PREFIX=/api/v1
 
 ## API Documentation
 
-📚 **[View Complete API Documentation →](API_DOCUMENTATION.md)**
-
 For complete API documentation including:
 
 - Request/Response schemas
@@ -156,32 +153,6 @@ For complete API documentation including:
 
 Quick reference: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
-**Quick Test Examples:**
-
-```bash
-# Validate GSTIN
-curl -X POST http://localhost:8001/api/v1/validate-gstin \
-  -H "Content-Type: application/json" \
-  -d '{"gstin": "29ABCDE1234F1Z5"}'
-
-# Verify Captcha
-curl -X POST http://localhost:8001/api/v1/verify-captcha \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "abc123",
-    "gstin": "29ABCDE1234F1Z5",
-    "captcha": "ABCD"
-  }'
-
-# Generate SMS Link
-curl -X POST http://localhost:8001/api/v1/generate-sms-link \
-  -H "Content-Type: application/json" \
-  -d '{
-    "gstin": "29ABCDE1234F1Z5",
-    "gst_type": "3B",
-    "period": "022025"
-  }'
-```
 
 ## Architecture
 
@@ -211,48 +182,6 @@ This application follows a **stateless API architecture**:
 
 - Tracks: Each filing attempt with status (completed/failed)
 - Analytics: Success rates, period-wise filings
-
-## Production Deployment
-
-### Recommended Stack
-
-- **Server**: Uvicorn with Gunicorn (multiple workers)
-- **Database**: MongoDB Atlas (already configured)
-- **Cache**: Redis for rate limiting (optional upgrade)
-- **Monitoring**: Sentry for error tracking
-- **Logs**: Centralized logging (Datadog/CloudWatch)
-
-### Deployment Command
-
-```bash
-gunicorn app.main:app \
-  --workers 4 \
-  --worker-class uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8001 \
-  --access-logfile - \
-  --error-logfile -
-```
-
-## Migration from Old Architecture
-
-This project was refactored from Twilio webhook-based architecture to AiSensy API Card architecture on **February 4, 2025**.
-
-**What changed:**
-
-- ❌ Removed: Twilio integration, state management, session handlers
-- ✅ Added: 4 stateless API endpoints for AiSensy
-- ♻️ Enhanced: User service with analytics, optimized database indexes
-- 🔒 Preserved: All core GST filing logic (100%)
-
-See [REFACTORING_GUIDE.md](REFACTORING_GUIDE.md) for complete migration details.
-
---- GST Nil Filing via WhatsApp
-
----
-
-## Objective
-
-Build a **guided WhatsApp-based assistant** that helps GST taxpayers successfully file **Nil returns via SMS**, with minimal errors, using WhatsApp Business API (AiSensy) for structured interaction, validation, and follow-ups.
 
 ---
 
@@ -434,31 +363,6 @@ Buttons:
 
 State → `COMPLETED`
 
----
-
-## AiSensy-Specific Work Breakdown
-
-### 🔧 Backend Team
-
-- Webhook handling
-- State management
-- GST APIs
-- SMS link generation
-- OTP parsing (optional)
-
-### 💬 WhatsApp / AiSensy Setup
-
-- Message templates approval
-- Button & list configurations
-- Session window handling (24-hour rule)
-- Fallback templates
-
-### 🧠 Product / UX
-
-- Exact wording of messages
-- Error & retry copy
-- Trust signals
-- Promotion placement
 
 ---
 

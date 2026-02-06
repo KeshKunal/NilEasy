@@ -37,6 +37,7 @@ from app.schemas.aisensy import (
 from app.services.gst_service import GSTService
 from app.services.sms_link_service import SMSLinkService
 from app.services.user_service import UserService
+from app.services.gstin_cache_service import get_gstin_cache_service
 from app.db.mongo import get_database
 
 # Initialize logger
@@ -48,6 +49,7 @@ router = APIRouter(prefix="/api/v1", tags=["AiSensy"])
 # Initialize services
 gst_service = GSTService()
 sms_service = SMSLinkService()
+gstin_cache_service = get_gstin_cache_service()
 
 # Rate limiting storage (in-memory for simplicity)
 # Production: Move to Redis with TTL
@@ -115,6 +117,33 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
     try:
         gstin = request.gstin
         logger.info(f"Validating GSTIN: {gstin}")
+        
+        # Check cache first - if GSTIN details exist, return them directly
+        cached_details = await gstin_cache_service.get_cached_details(gstin)
+        if cached_details:
+            logger.info(f"Returning cached details for GSTIN: {gstin}")
+            
+            # Return business details directly from cache (skip captcha)
+            business_details = BusinessDetails(
+                business_name=cached_details.get('business_name', 'N/A'),
+                legal_name=cached_details.get('legal_name', 'N/A'),
+                address=cached_details.get('address', 'N/A'),
+                registration_date=cached_details.get('registration_date', 'N/A'),
+                status=cached_details.get('status', 'N/A'),
+                gstin=gstin
+            )
+            
+            # Return as a verify-captcha style response (but in validate response format)
+            # This allows AiSensy to skip captcha step
+            return ValidateGSTINResponse(
+                valid=True,
+                captcha_url=None,  # No captcha needed
+                session_id="cached",  # Indicate this is from cache
+                business_details=business_details  # Add cached details
+            )
+        
+        # Not in cache - proceed with normal captcha flow
+        logger.info(f"GSTIN not in cache, fetching captcha: {gstin}")
         
         # Check rate limiting
         is_allowed, error_msg = check_rate_limit(gstin)
@@ -216,6 +245,17 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
             status=details.get('status', 'N/A'),
             gstin=request.gstin
         )
+        
+        # Cache the business details for future requests
+        await gstin_cache_service.cache_details(
+            gstin=request.gstin,
+            business_name=details.get('trade_name', 'N/A'),
+            legal_name=details.get('legal_name', 'N/A'),
+            address=details.get('address', 'N/A'),
+            registration_date=details.get('registration_date', 'N/A'),
+            status=details.get('status', 'N/A')
+        )
+        logger.info(f"Cached business details for {request.gstin}")
         
         return VerifyCaptchaResponse(
             success=True,

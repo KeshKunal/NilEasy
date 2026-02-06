@@ -175,7 +175,7 @@ from fastapi.responses import Response
 # Use the same GST service instance from aisensy module
 from app.api.aisensy import gst_service as gst_service_instance
 
-# AiSensy API endpoints (replaces Twilio webhook)
+# AiSensy API endpoints
 app.include_router(aisensy.router, tags=["AiSensy"])
 
 

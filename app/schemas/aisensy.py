@@ -36,6 +36,7 @@ class ValidateGSTINResponse(BaseModel):
     valid: bool = Field(..., description="Whether GSTIN format is valid")
     captcha_url: Optional[str] = Field(default=None, description="URL to fetch captcha image")
     session_id: Optional[str] = Field(default=None, description="Session ID for captcha verification")
+    business_details: Optional['BusinessDetails'] = Field(default=None, description="Cached business details (skips captcha)")
     error: Optional[str] = Field(default=None, description="Error message if validation failed")
 
 
@@ -134,3 +135,7 @@ class TrackCompletionResponse(BaseModel):
     tracked: bool = Field(..., description="Whether tracking succeeded")
     message: Optional[str] = Field(default=None, description="Success message")
     error: Optional[str] = Field(default=None, description="Error message if failed")
+
+
+# Resolve forward references
+ValidateGSTINResponse.model_rebuild()
