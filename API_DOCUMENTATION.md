@@ -35,9 +35,11 @@ NilEasy provides a **stateless REST API** for GST Nil Filing automation via What
 
 - ✅ **Stateless Architecture** - No server-side session management
 - ✅ **Direct GST Portal Integration** - Real-time captcha and business details
+- ✅ **Smart GSTIN Cache** - Returns cached details instantly if GSTIN already verified
 - ✅ **Rate Limited** - 3 captcha attempts per GSTIN per hour
 - ✅ **Production Ready** - Comprehensive error handling and logging
 - ✅ **Pydantic Validation** - Automatic request/response validation
+- ✅ **Multiple Filing Types** - Supports GSTR-3B, GSTR-1, and CMP-08
 
 ---
 
@@ -109,6 +111,8 @@ All endpoints return **HTTP 200** with error details in response body for easier
 
 Validates GSTIN format and fetches captcha image from GST portal.
 
+**📌 Smart Caching:** If the GSTIN has been verified before, this endpoint returns cached business details immediately, **skipping the captcha flow entirely**.
+
 **Endpoint:** `POST /api/v1/validate-gstin`
 
 #### Request Body
@@ -123,23 +127,46 @@ Validates GSTIN format and fetches captcha image from GST portal.
 | ------- | ------ | -------- | ------------------ | ------------------------------------------------------------------ |
 | `gstin` | string | ✅ Yes   | 15-character GSTIN | Regex: `^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$` |
 
-#### Response - Success
+#### Response - Success (New GSTIN)
 
 ```json
 {
   "valid": true,
   "captcha_url": "http://localhost:8001/api/v1/captcha/29AABCU9603R1ZX",
   "session_id": "8d006cb7-415b-43ea-ad36-01d9e83ba034",
+  "business_details": null,
   "error": null
 }
 ```
 
-| Field         | Type           | Description                      |
-| ------------- | -------------- | -------------------------------- |
-| `valid`       | boolean        | Whether GSTIN is valid           |
-| `captcha_url` | string         | URL to fetch captcha image (PNG) |
-| `session_id`  | string         | UUID for captcha verification    |
-| `error`       | string \| null | Error message if failed          |
+#### Response - Success (Cached GSTIN - No Captcha Needed)
+
+```json
+{
+  "valid": true,
+  "captcha_url": null,
+  "session_id": "cached",
+  "business_details": {
+    "business_name": "ETERNAL LIMITED",
+    "legal_name": "ETERNAL LIMITED",
+    "address": "12 R.G. Chambers, 80 ft road, 5th Block, Koramangala, Bengaluru Urban, Karnataka, 560095",
+    "registration_date": "01/07/2017",
+    "status": "Active",
+    "gstin": "29AABCU9603R1ZX"
+  },
+  "error": null
+}
+```
+
+**Note:** When `session_id` is `"cached"` and `business_details` is present, skip directly to Step 3 (Generate SMS Link).
+
+| Field              | Type           | Description                                            |
+| ------------------ | -------------- | ------------------------------------------------------ |
+| `valid`            | boolean        | Whether GSTIN is valid                                 |
+| `captcha_url`      | string         | URL to fetch captcha image (PNG) - null if cached      |
+| `session_id`       | string         | UUID for captcha verification - "cached" if from cache |
+| `business_details` | object \| null | Business details if GSTIN is cached                    |
+| `error`            | string \| null | Error message if failed                                |
 
 #### Response - Error
 
@@ -299,7 +326,7 @@ Generates SMS deep link for GST Nil filing to 14409.
 | Field      | Type   | Required | Description        | Validation                   |
 | ---------- | ------ | -------- | ------------------ | ---------------------------- |
 | `gstin`    | string | ✅ Yes   | 15-character GSTIN | Same format as Step 1        |
-| `gst_type` | string | ✅ Yes   | GST return type    | Must be "3B" or "R1"         |
+| `gst_type` | string | ✅ Yes   | GST return type    | Must be "3B", "R1", or "C8"  |
 | `period`   | string | ✅ Yes   | Filing period      | MMYYYY format (e.g., 012026) |
 
 #### Response - Success
@@ -393,13 +420,13 @@ Tracks filing completion for analytics and user records.
 }
 ```
 
-| Field      | Type   | Required | Description         | Validation              |
-| ---------- | ------ | -------- | ------------------- | ----------------------- |
-| `phone`    | string | ✅ Yes   | User's phone number | Any format              |
-| `gstin`    | string | ✅ Yes   | 15-character GSTIN  | Same format as Step 1   |
-| `gst_type` | string | ✅ Yes   | GST return type     | Must be "3B" or "R1"    |
-| `period`   | string | ✅ Yes   | Filing period       | MMYYYY format           |
-| `status`   | string | ✅ Yes   | Filing status       | "completed" or "failed" |
+| Field      | Type   | Required | Description         | Validation                  |
+| ---------- | ------ | -------- | ------------------- | --------------------------- |
+| `phone`    | string | ✅ Yes   | User's phone number | Any format                  |
+| `gstin`    | string | ✅ Yes   | 15-character GSTIN  | Same format as Step 1       |
+| `gst_type` | string | ✅ Yes   | GST return type     | Must be "3B", "R1", or "C8" |
+| `period`   | string | ✅ Yes   | Filing period       | MMYYYY format               |
+| `status`   | string | ✅ Yes   | Filing status       | "completed" or "failed"     |
 
 #### Response - Success (Completed)
 
@@ -733,10 +760,11 @@ pytest tests/
 
 ### GST Types
 
-| Code | Full Form | Description                      |
-| ---- | --------- | -------------------------------- |
-| 3B   | GSTR-3B   | Monthly return for all taxpayers |
-| R1   | GSTR-1    | Details of outward supplies      |
+| Code | Full Form | Description                         | SMS Format Example            |
+| ---- | --------- | ----------------------------------- | ----------------------------- |
+| 3B   | GSTR-3B   | Monthly return for all taxpayers    | NIL 3B 29AABCU9603R1ZX 012026 |
+| R1   | GSTR-1    | Details of outward supplies         | NIL R1 29AABCU9603R1ZX 012026 |
+| C8   | CMP-08    | Composition scheme quarterly return | NIL C8 29AABCU9603R1ZX 062020 |
 
 ---
 
@@ -771,7 +799,6 @@ pytest tests/
 ```
 
 ---
-
 
 **Last Updated:** February 4, 2026  
 **API Version:** 1.0.0  

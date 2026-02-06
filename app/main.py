@@ -94,7 +94,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     debug=settings.DEBUG,
-    docs_url="/docs" if settings.is_development else None,  # Disable docs in production
+    docs_url="/docs" if settings.is_development else None,
     redoc_url="/redoc" if settings.is_development else None,
 )
 

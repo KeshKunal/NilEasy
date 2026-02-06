@@ -77,7 +77,7 @@ class GenerateSMSLinkRequest(BaseModel):
     """Request schema for SMS link generation endpoint."""
     
     gstin: str = Field(..., min_length=15, max_length=15, description="GSTIN")
-    gst_type: str = Field(..., description="GST return type: '3B' or 'R1'")
+    gst_type: str = Field(..., description="GST return type: '3B', 'R1', or 'C8'")
     period: str = Field(..., min_length=6, max_length=6, description="Period in MMYYYY format")
     
     @field_validator('gst_type')
@@ -85,8 +85,8 @@ class GenerateSMSLinkRequest(BaseModel):
     def validate_gst_type(cls, v: str) -> str:
         """Validate GST type."""
         v = v.strip().upper()
-        if v not in ['3B', 'R1']:
-            raise ValueError("GST type must be '3B' or 'R1'")
+        if v not in ['3B', 'R1', 'C8']:
+            raise ValueError("GST type must be '3B', 'R1', or 'C8'")
         return v
     
     @field_validator('period')
@@ -115,9 +115,18 @@ class TrackCompletionRequest(BaseModel):
     
     phone: str = Field(..., description="User's phone number")
     gstin: str = Field(..., min_length=15, max_length=15, description="GSTIN")
-    gst_type: str = Field(..., description="GST return type")
+    gst_type: str = Field(..., description="GST return type: '3B', 'R1', or 'C8'")
     period: str = Field(..., min_length=6, max_length=6, description="Period in MMYYYY")
     status: str = Field(..., description="Filing status: 'completed' or 'failed'")
+    
+    @field_validator('gst_type')
+    @classmethod
+    def validate_gst_type(cls, v: str) -> str:
+        """Validate GST type."""
+        v = v.strip().upper()
+        if v not in ['3B', 'R1', 'C8']:
+            raise ValueError("GST type must be '3B', 'R1', or 'C8'")
+        return v
     
     @field_validator('status')
     @classmethod
