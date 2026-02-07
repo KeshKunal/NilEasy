@@ -14,6 +14,7 @@ Architecture:
 - Full request validation via Pydantic
 - User-friendly error messages
 - Production logging for debugging
+- Unified user schema with embedded filings and generated_links
 """
 
 from fastapi import APIRouter, HTTPException, Request
@@ -278,7 +279,8 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
     1. Validate inputs (handled by Pydantic)
     2. Format SMS text (NIL <type> <GSTIN> <period>)
     3. Generate deep link using SMS shortlink service
-    4. Return clickable link with preview and instructions
+    4. Save generated link to user's generated_links array
+    5. Return clickable link with preview and instructions
     
     Returns:
         GenerateSMSLinkResponse with sms_link and instructions
@@ -295,12 +297,14 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
         # Generate deep link
         result = await sms_service.create_sms_deep_link(
             sms_text=sms_text,
-        phone_number="14409",  # GST filing number
+            phone_number="14409",  # GST filing number
             user_phone=""  # Not needed for this flow
         )
         
-        # Save filing context for later tracking
+        # Get user service for saving data
         user_service = await get_user_service()
+        
+        # Save filing context for later tracking
         await user_service.save_filing_context(
             gstin=request.gstin,
             gst_type=request.gst_type,
@@ -316,11 +320,25 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
                 error=error_msg
             )
         
-        logger.info(f"SMS link generated successfully for {request.gstin}")
+        short_url = result.get('short_url', '')
+        short_code = result.get('short_code', '')
+        
+        # Save generated link to user's generated_links array
+        await user_service.add_generated_link(
+            phone=None,  # Phone not known yet
+            short_url=short_url,
+            short_code=short_code,
+            sms_text=sms_text,
+            gstin=request.gstin,
+            gst_type=request.gst_type,
+            period=request.period
+        )
+        
+        logger.info(f"SMS link generated and saved for {request.gstin}")
         
         return GenerateSMSLinkResponse(
             success=True,
-            sms_link=result['short_url'],  # Changed from 'sms_link' to 'short_url'
+            sms_link=short_url,
             sms_preview=sms_text,
             instruction=(
                 "📱 Click the link below to send the SMS from your "
@@ -356,7 +374,7 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
     AiSensy calls this when user confirms successful filing or reports failure.
     
     Flow:
-    1. Store completion/failure record in database
+    1. Store completion/failure record in user's embedded filings array
     2. Update user analytics
     3. Return confirmation
     
@@ -368,7 +386,6 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
             f"Tracking completion for phone: {request.phone}, "
             f"GSTIN: {request.gstin}, Status: {request.status}"
         )
-        
         
         # Get user service
         user_service = await get_user_service()
@@ -383,19 +400,14 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         if not context:
             logger.warning(f"Filing context missing for GSTIN: {request.gstin}")
         
-        # Record filing attempt in database
-        filing_data = {
-            'phone': request.phone,
-            'gstin': request.gstin,
-            'gst_type': gst_type,
-            'period': period,
-            'status': request.status,
-            'timestamp': datetime.now()
-        }
-        
-        # Store in filings collection
-        db = await get_database()
-        await db.filings.insert_one(filing_data)
+        # Add filing to user's embedded filings array
+        await user_service.add_filing(
+            phone=request.phone,
+            gstin=request.gstin,
+            gst_type=gst_type,
+            period=period,
+            status=request.status
+        )
         
         # Update user record (create if doesn't exist)
         await user_service.update_or_create_user(

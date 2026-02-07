@@ -1,11 +1,11 @@
 """
 app/db/indexes.py
 
-Purpose: Database index management for AiSensy architecture
+Purpose: Database index management for unified schema
 
-- Creates unique and performance indexes
+- Creates indexes for users collection only
+- Optimized for phone-based lookups and embedded array queries
 - Ensures fast lookups and data integrity
-- Optimized for stateless API architecture
 """
 
 from app.db.mongo import get_database
@@ -19,14 +19,11 @@ async def create_indexes():
     Creates all necessary database indexes for optimal performance.
     This function is idempotent - safe to run multiple times.
     
-    Optimized for AiSensy stateless API architecture:
-    - Users collection: phone-based lookups
-    - Filings collection: analytics and tracking
+    Unified Schema: All data stored in users collection with embedded arrays.
     """
     try:
         db = await get_database()
         users = db.users
-        filings = db.filings
         
         logger.info("Creating database indexes...")
         
@@ -36,7 +33,7 @@ async def create_indexes():
         
         # Unique index on phone (primary identifier)
         try:
-            await users.create_index("phone", unique=True, name="phone_unique")
+            await users.create_index("phone", unique=True, sparse=True, name="phone_unique")
             logger.info("✅ Created unique index on users.phone")
         except Exception as e:
             logger.debug(f"Index phone_unique already exists: {str(e)}")
@@ -63,49 +60,41 @@ async def create_indexes():
             logger.debug(f"Index created_at_idx already exists: {str(e)}")
         
         # ==============================================
-        # FILINGS COLLECTION INDEXES
+        # EMBEDDED FILINGS ARRAY INDEXES
         # ==============================================
         
-        # Compound index on phone + timestamp for user's filing history
+        # Compound index for querying filings by gstin + period
         try:
-            await filings.create_index(
-                [("phone", 1), ("timestamp", -1)],
-                name="phone_filings_idx"
+            await users.create_index(
+                [("filings.gstin", 1), ("filings.period", 1)],
+                name="filings_gstin_period_idx",
+                sparse=True
             )
-            logger.info("✅ Created index on filings.phone + timestamp")
+            logger.info("✅ Created index on users.filings.gstin + period")
         except Exception as e:
-            logger.debug(f"Index phone_filings_idx already exists: {str(e)}")
+            logger.debug(f"Index filings_gstin_period_idx already exists: {str(e)}")
         
-        # Index on status for analytics (completed/failed counts)
+        # Index on filings status for analytics
         try:
-            await filings.create_index("status", name="status_idx")
-            logger.info("✅ Created index on filings.status")
+            await users.create_index("filings.status", name="filings_status_idx", sparse=True)
+            logger.info("✅ Created index on users.filings.status")
         except Exception as e:
-            logger.debug(f"Index status_idx already exists: {str(e)}")
+            logger.debug(f"Index filings_status_idx already exists: {str(e)}")
         
-        # Index on gstin for GSTIN-based queries
-        try:
-            await filings.create_index("gstin", name="filing_gstin_idx")
-            logger.info("✅ Created index on filings.gstin")
-        except Exception as e:
-            logger.debug(f"Index filing_gstin_idx already exists: {str(e)}")
+        # ==============================================
+        # EMBEDDED GENERATED_LINKS ARRAY INDEXES
+        # ==============================================
         
-        # Compound index on gstin + period for duplicate prevention
+        # Index on short_code for link click tracking
         try:
-            await filings.create_index(
-                [("gstin", 1), ("period", 1), ("gst_type", 1)],
-                name="filing_unique_idx"
+            await users.create_index(
+                "generated_links.short_code",
+                name="links_short_code_idx",
+                sparse=True
             )
-            logger.info("✅ Created compound index on filings.gstin + period + gst_type")
+            logger.info("✅ Created index on users.generated_links.short_code")
         except Exception as e:
-            logger.debug(f"Index filing_unique_idx already exists: {str(e)}")
-        
-        # Index on timestamp for time-based queries
-        try:
-            await filings.create_index("timestamp", name="timestamp_idx")
-            logger.info("✅ Created index on filings.timestamp")
-        except Exception as e:
-            logger.debug(f"Index timestamp_idx already exists: {str(e)}")
+            logger.debug(f"Index links_short_code_idx already exists: {str(e)}")
         
         logger.info("🎉 All database indexes created successfully")
         

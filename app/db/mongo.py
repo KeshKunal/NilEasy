@@ -1,10 +1,10 @@
 """
 app/db/mongo.py
 
-Purpose: MongoDB connection setup (Minimal schema)
+Purpose: MongoDB connection setup (Unified schema)
 
 - Initializes Motor client with connection pooling
-- Exposes 2 collections: users, filing_attempts
+- Single collection: users (with embedded filings and generated_links)
 - Health checks and retry logic
 - Proper connection lifecycle management
 """
@@ -135,21 +135,27 @@ async def get_database() -> AsyncIOMotorDatabase:
 
 def get_users_collection():
     """
-    Returns the users collection (minimal schema).
+    Returns the users collection (unified schema).
     
-    Fields: phone, name, gstin, business_name, gst_type, 
-            current_state, session_data, created_at, last_active
+    Unified Schema Fields:
+    - phone: str (primary key)
+    - name: str
+    - gstin: str
+    - business_name: str
+    - legal_name: str
+    - address: str
+    - state: str
+    - created_at: datetime
+    - last_active: datetime
+    - total_filings: int
+    - successful_filings: int
+    - failed_filings: int
+    - current_filing_context: dict (temporary filing context)
+    - filings: list[dict] (embedded filing history)
+    - generated_links: list[dict] (embedded SMS links history)
     """
-    db = get_database()
-    return db["users"]
-
-
-def get_filing_attempts_collection():
-    """
-    Returns the filing_attempts collection (minimal schema).
-    
-    Fields: phone, gstin, business_name, period, gst_type,
-            status, arn, created_at, completed_at
-    """
-    db = get_database()
-    return db["filing_attempts"]
+    if _database is None:
+        raise RuntimeError(
+            "Database not initialized. Call connect_to_mongo() during startup."
+        )
+    return _database["users"]

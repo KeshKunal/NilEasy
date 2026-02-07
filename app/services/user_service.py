@@ -1,77 +1,33 @@
 """
 app/services/user_service.py
 
-Purpose: User data management
+Purpose: User data management with unified schema
 
 - Create or update user records
 - User retrieval and management
-- Analytics and filing tracking
+- Filing tracking (embedded in user document)
+- Generated links tracking (embedded in user document)
 - Uses phone number as primary identifier
 """
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.logging import get_logger
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 logger = get_logger(__name__)
 
 
 class UserService:
     """
-    Enhanced user service for AiSensy integration.
-    Handles user creation, updates, and analytics tracking.
+    User service with unified schema.
+    All data (filings, generated_links) is embedded in user document.
     """
     
     def __init__(self, db: AsyncIOMotorDatabase):
         """Initialize with database connection."""
         self.db = db
         self.users = db.users
-        self.filings = db.filings
-class UserService:
-    """
-    Enhanced user service for AiSensy integration.
-    Handles user creation, updates, and analytics tracking.
-    """
-    
-    def __init__(self, db: AsyncIOMotorDatabase):
-        """Initialize with database connection."""
-        self.db = db
-        self.users = db.users
-        self.filings = db.filings
-        self.filing_contexts = db.filing_contexts
-    
-    async def save_filing_context(
-        self,
-        gstin: str,
-        gst_type: str,
-        period: str
-    ) -> bool:
-        """
-        Save temporary filing context for a GSTIN.
-        This allows us to track completion later without asking the user for these details again.
-        """
-        try:
-            await self.filing_contexts.update_one(
-                {"gstin": gstin},
-                {
-                    "$set": {
-                        "gst_type": gst_type,
-                        "period": period,
-                        "updated_at": datetime.utcnow()
-                    }
-                },
-                upsert=True
-            )
-            logger.info(f"Saved filing context for {gstin}: {gst_type}, {period}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save filing context: {e}")
-            return False
-
-    async def get_filing_context(self, gstin: str) -> Optional[Dict[str, Any]]:
-        """Retrieve filing context for a GSTIN."""
-        return await self.filing_contexts.find_one({"gstin": gstin})
     
     async def get_or_create_user(self, phone: str, name: str = None) -> Dict[str, Any]:
         """
@@ -96,19 +52,23 @@ class UserService:
             logger.info(f"Retrieved existing user: {phone}")
             return user
         
-        # Create new user
+        # Create new user with unified schema
         user_doc = {
             "phone": phone,
             "name": name or "User",
             "gstin": None,
             "business_name": None,
             "legal_name": None,
+            "address": None,
             "state": None,
             "created_at": datetime.utcnow(),
             "last_active": datetime.utcnow(),
             "total_filings": 0,
             "successful_filings": 0,
-            "failed_filings": 0
+            "failed_filings": 0,
+            # Embedded arrays for unified schema
+            "filings": [],
+            "generated_links": []
         }
         
         await self.users.insert_one(user_doc)
@@ -128,7 +88,7 @@ class UserService:
         Update existing user or create new one with analytics.
         
         Args:
-            user_id: Phone number
+            user_id: Phone number or GSTIN (identifier)
             gstin: GSTIN to store
             last_filing_status: 'completed' or 'failed'
             business_name: Trade name
@@ -148,35 +108,55 @@ class UserService:
         if address:
             updates["address"] = address
         
+        # Determine query field (phone or gstin)
+        query = {"phone": user_id} if user_id.startswith("+") else {"gstin": user_id}
+        
         # Update filing counters
         if last_filing_status == 'completed':
             result = await self.users.update_one(
-                {"phone": user_id},
+                query,
                 {
                     "$set": updates,
                     "$inc": {
                         "total_filings": 1,
                         "successful_filings": 1
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.utcnow(),
+                        "filings": [],
+                        "generated_links": []
                     }
                 },
                 upsert=True
             )
         elif last_filing_status == 'failed':
             result = await self.users.update_one(
-                {"phone": user_id},
+                query,
                 {
                     "$set": updates,
                     "$inc": {
                         "total_filings": 1,
                         "failed_filings": 1
+                    },
+                    "$setOnInsert": {
+                        "created_at": datetime.utcnow(),
+                        "filings": [],
+                        "generated_links": []
                     }
                 },
                 upsert=True
             )
         else:
             result = await self.users.update_one(
-                {"phone": user_id},
-                {"$set": updates},
+                query,
+                {
+                    "$set": updates,
+                    "$setOnInsert": {
+                        "created_at": datetime.utcnow(),
+                        "filings": [],
+                        "generated_links": []
+                    }
+                },
                 upsert=True
             )
         
@@ -229,4 +209,206 @@ class UserService:
             "failed_filings": user.get("failed_filings", 0),
             "success_rate": round(success_rate, 2)
         }
+    
+    # =========================================================================
+    # Filing Context Methods (now embedded in user document)
+    # =========================================================================
+    
+    async def save_filing_context(
+        self,
+        gstin: str,
+        gst_type: str,
+        period: str
+    ) -> bool:
+        """
+        Save filing context embedded in user document.
+        """
+        try:
+            result = await self.users.update_one(
+                {"gstin": gstin},
+                {
+                    "$set": {
+                        "current_filing_context": {
+                            "gst_type": gst_type,
+                            "period": period,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                }
+            )
+            logger.info(f"Saved filing context for {gstin}: {gst_type}, {period}")
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Failed to save filing context: {e}")
+            return False
 
+    async def get_filing_context(self, gstin: str) -> Optional[Dict[str, Any]]:
+        """Retrieve filing context for a GSTIN."""
+        user = await self.users.find_one({"gstin": gstin})
+        return user.get("current_filing_context") if user else None
+    
+    # =========================================================================
+    # Embedded Filings Methods
+    # =========================================================================
+    
+    async def add_filing(
+        self,
+        phone: str,
+        gstin: str,
+        gst_type: str,
+        period: str,
+        status: str,
+        arn: str = None
+    ) -> bool:
+        """
+        Add a filing record to user's embedded filings array.
+        
+        Args:
+            phone: User's phone number
+            gstin: GSTIN
+            gst_type: GST type (3B/R1)
+            period: Filing period (MMYYYY)
+            status: Filing status (completed/failed)
+            arn: ARN number (optional)
+        
+        Returns:
+            True if successful
+        """
+        filing_doc = {
+            "gstin": gstin,
+            "gst_type": gst_type,
+            "period": period,
+            "status": status,
+            "timestamp": datetime.utcnow(),
+            "arn": arn
+        }
+        
+        result = await self.users.update_one(
+            {"phone": phone},
+            {
+                "$push": {"filings": filing_doc},
+                "$set": {"last_active": datetime.utcnow()}
+            }
+        )
+        
+        logger.info(f"Added filing for {phone}: {gst_type} {period} - {status}")
+        return result.modified_count > 0
+    
+    async def get_filing_history(
+        self,
+        phone: str,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Get user's filing history from embedded array.
+        
+        Args:
+            phone: Phone number
+            limit: Maximum filings to return
+        
+        Returns:
+            List of filing records
+        """
+        user = await self.users.find_one({"phone": phone})
+        if not user:
+            return []
+        
+        filings = user.get("filings", [])
+        # Sort by timestamp descending and limit
+        filings.sort(key=lambda x: x.get("timestamp", datetime.min), reverse=True)
+        return filings[:limit]
+    
+    # =========================================================================
+    # Generated Links Methods
+    # =========================================================================
+    
+    async def add_generated_link(
+        self,
+        phone: str,
+        short_url: str,
+        short_code: str,
+        sms_text: str,
+        gstin: str,
+        gst_type: str,
+        period: str
+    ) -> bool:
+        """
+        Add a generated SMS link to user's embedded array.
+        
+        Args:
+            phone: User's phone number (can be None if not known yet)
+            short_url: The shortened URL
+            short_code: Short code for analytics
+            sms_text: The SMS text content
+            gstin: GSTIN
+            gst_type: GST type
+            period: Filing period
+        
+        Returns:
+            True if successful
+        """
+        link_doc = {
+            "short_url": short_url,
+            "short_code": short_code,
+            "sms_text": sms_text,
+            "gstin": gstin,
+            "gst_type": gst_type,
+            "period": period,
+            "created_at": datetime.utcnow(),
+            "clicked": False
+        }
+        
+        # Try to find user by GSTIN if phone not provided
+        query = {"phone": phone} if phone else {"gstin": gstin}
+        
+        result = await self.users.update_one(
+            query,
+            {"$push": {"generated_links": link_doc}}
+        )
+        
+        logger.info(f"Added generated link for {gstin}: {short_url}")
+        return result.modified_count > 0
+    
+    async def get_generated_links(
+        self,
+        phone: str = None,
+        gstin: str = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Get user's generated links history.
+        
+        Args:
+            phone: Phone number (optional)
+            gstin: GSTIN (optional, used if phone not provided)
+            limit: Maximum links to return
+        
+        Returns:
+            List of generated link records
+        """
+        query = {"phone": phone} if phone else {"gstin": gstin}
+        user = await self.users.find_one(query)
+        
+        if not user:
+            return []
+        
+        links = user.get("generated_links", [])
+        # Sort by created_at descending and limit
+        links.sort(key=lambda x: x.get("created_at", datetime.min), reverse=True)
+        return links[:limit]
+    
+    async def mark_link_clicked(self, short_code: str) -> bool:
+        """
+        Mark a generated link as clicked.
+        
+        Args:
+            short_code: The short code of the link
+        
+        Returns:
+            True if updated successfully
+        """
+        result = await self.users.update_one(
+            {"generated_links.short_code": short_code},
+            {"$set": {"generated_links.$.clicked": True}}
+        )
+        return result.modified_count > 0

@@ -1,35 +1,37 @@
 """
 app/services/filing_service.py
 
-Purpose: Nil filing lifecycle management
+Purpose: Nil filing lifecycle management (using embedded data in users collection)
 
-- Tracks filing attempts
-- Stores OTP/ARN timestamps
-- Updates filing status (initiated, confirmed, failed)
-- Provides auditability for compliance
+- Tracks filing attempts via user's embedded filings array
+- Provides filing history and statistics
+- Maintains compatibility with existing API
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
-from motor.motor_asyncio import AsyncIOMotorCollection
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.db.mongo import get_filing_attempts_collection
+from app.db.mongo import get_database
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class FilingService:
-    """Service for managing GST Nil filing lifecycle."""
+    """
+    Service for managing GST Nil filing lifecycle.
+    Uses embedded filings array in users collection.
+    """
     
     def __init__(self):
-        self.collection: Optional[AsyncIOMotorCollection] = None
+        self._db: Optional[AsyncIOMotorDatabase] = None
     
-    async def _get_collection(self) -> AsyncIOMotorCollection:
-        """Get filing attempts collection."""
-        if not self.collection:
-            self.collection = get_filing_attempts_collection()
-        return self.collection
+    async def _get_db(self) -> AsyncIOMotorDatabase:
+        """Get database instance."""
+        if not self._db:
+            self._db = await get_database()
+        return self._db
     
     async def create_filing_attempt(
         self,
@@ -39,21 +41,23 @@ class FilingService:
         period: str
     ) -> str:
         """
-        Creates a new filing attempt record.
+        Creates a new filing attempt record embedded in user document.
         
         Args:
-            user_id: User ID
+            user_id: User ID (phone number)
             gstin: GSTIN
             gst_type: GST type (regular/composition)
             period: Filing period (MMYYYY format)
         
         Returns:
-            Filing attempt ID
+            Filing attempt ID (timestamp-based)
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
-        attempt_data = {
-            "user_id": user_id,
+        attempt_id = f"{gstin}_{period}_{int(datetime.utcnow().timestamp())}"
+        
+        filing_doc = {
+            "attempt_id": attempt_id,
             "gstin": gstin,
             "gst_type": gst_type,
             "period": period,
@@ -69,8 +73,15 @@ class FilingService:
             "retry_count": 0
         }
         
-        result = await collection.insert_one(attempt_data)
-        attempt_id = str(result.inserted_id)
+        # Push to user's filings array
+        result = await db.users.update_one(
+            {"phone": user_id},
+            {
+                "$push": {"filings": filing_doc},
+                "$set": {"last_active": datetime.utcnow()}
+            },
+            upsert=True
+        )
         
         logger.info(
             "Filing attempt created",
@@ -105,55 +116,43 @@ class FilingService:
         Returns:
             True if updated successfully
         """
-        collection = await self._get_collection()
-        
-        # Build query
-        query = {"user_id": user_id}
-        if gstin:
-            query["gstin"] = gstin
-        if period:
-            query["period"] = period
-        
-        # Find latest attempt
-        attempt = await collection.find_one(
-            query,
-            sort=[("created_at", -1)]
-        )
-        
-        if not attempt:
-            logger.warning(f"No filing attempt found for user {user_id}")
-            return False
+        db = await self._get_db()
         
         # Build update data
-        update_data = {
-            "status": status,
-            "updated_at": datetime.utcnow()
+        update_fields = {
+            "filings.$.status": status,
+            "filings.$.updated_at": datetime.utcnow()
         }
         
         # Add timestamp based on status
         if status == "sms_sent":
-            update_data["sms_sent_at"] = datetime.utcnow()
+            update_fields["filings.$.sms_sent_at"] = datetime.utcnow()
         elif status == "otp_received":
-            update_data["otp_received_at"] = datetime.utcnow()
+            update_fields["filings.$.otp_received_at"] = datetime.utcnow()
         elif status == "otp_submitted":
-            update_data["otp_submitted_at"] = datetime.utcnow()
+            update_fields["filings.$.otp_submitted_at"] = datetime.utcnow()
         elif status == "completed":
-            update_data["completed_at"] = datetime.utcnow()
+            update_fields["filings.$.completed_at"] = datetime.utcnow()
         
         if error_message:
-            update_data["error_message"] = error_message
+            update_fields["filings.$.error_message"] = error_message
         
-        # Update
-        result = await collection.update_one(
-            {"_id": attempt["_id"]},
-            {"$set": update_data}
+        # Build query for finding the right filing
+        query = {"phone": user_id}
+        if gstin:
+            query["filings.gstin"] = gstin
+        if period:
+            query["filings.period"] = period
+        
+        result = await db.users.update_one(
+            query,
+            {"$set": update_fields}
         )
         
         logger.info(
             f"Filing status updated to {status}",
             extra={
                 "user_id": user_id,
-                "attempt_id": str(attempt["_id"]),
                 "status": status
             }
         )
@@ -179,32 +178,22 @@ class FilingService:
         Returns:
             True if stored successfully
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
-        query = {"user_id": user_id}
+        query = {"phone": user_id}
         if gstin:
-            query["gstin"] = gstin
+            query["filings.gstin"] = gstin
         if period:
-            query["period"] = period
+            query["filings.period"] = period
         
-        # Find latest attempt
-        attempt = await collection.find_one(
+        result = await db.users.update_one(
             query,
-            sort=[("created_at", -1)]
-        )
-        
-        if not attempt:
-            return False
-        
-        # Update with ARN
-        result = await collection.update_one(
-            {"_id": attempt["_id"]},
             {
                 "$set": {
-                    "arn": arn,
-                    "status": "completed",
-                    "completed_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+                    "filings.$.arn": arn,
+                    "filings.$.status": "completed",
+                    "filings.$.completed_at": datetime.utcnow(),
+                    "filings.$.updated_at": datetime.utcnow()
                 }
             }
         )
@@ -218,54 +207,6 @@ class FilingService:
         )
         
         return result.modified_count > 0
-    
-    async def increment_retry_count(
-        self,
-        user_id: str,
-        gstin: Optional[str] = None,
-        period: Optional[str] = None
-    ) -> int:
-        """
-        Increments retry count for a filing attempt.
-        
-        Args:
-            user_id: User ID
-            gstin: Optional GSTIN filter
-            period: Optional period filter
-        
-        Returns:
-            New retry count
-        """
-        collection = await self._get_collection()
-        
-        query = {"user_id": user_id}
-        if gstin:
-            query["gstin"] = gstin
-        if period:
-            query["period"] = period
-        
-        # Find latest attempt
-        attempt = await collection.find_one(
-            query,
-            sort=[("created_at", -1)]
-        )
-        
-        if not attempt:
-            return 0
-        
-        new_count = attempt.get("retry_count", 0) + 1
-        
-        await collection.update_one(
-            {"_id": attempt["_id"]},
-            {
-                "$set": {
-                    "retry_count": new_count,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        return new_count
     
     async def get_latest_filing_attempt(
         self,
@@ -284,23 +225,28 @@ class FilingService:
         Returns:
             Filing attempt dict or None
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
-        query = {"user_id": user_id}
+        user = await db.users.find_one({"phone": user_id})
+        if not user:
+            return None
+        
+        filings = user.get("filings", [])
+        if not filings:
+            return None
+        
+        # Filter if needed
         if gstin:
-            query["gstin"] = gstin
+            filings = [f for f in filings if f.get("gstin") == gstin]
         if period:
-            query["period"] = period
+            filings = [f for f in filings if f.get("period") == period]
         
-        attempt = await collection.find_one(
-            query,
-            sort=[("created_at", -1)]
-        )
+        if not filings:
+            return None
         
-        if attempt:
-            attempt["_id"] = str(attempt["_id"])
-        
-        return attempt
+        # Sort by created_at and return latest
+        filings.sort(key=lambda x: x.get("created_at", datetime.min), reverse=True)
+        return filings[0]
     
     async def get_filing_history(
         self,
@@ -317,19 +263,16 @@ class FilingService:
         Returns:
             List of filing attempts
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
-        cursor = collection.find(
-            {"user_id": user_id}
-        ).sort("created_at", -1).limit(limit)
+        user = await db.users.find_one({"phone": user_id})
+        if not user:
+            return []
         
-        attempts = await cursor.to_list(length=limit)
+        filings = user.get("filings", [])
+        filings.sort(key=lambda x: x.get("created_at", datetime.min), reverse=True)
         
-        # Convert ObjectId to string
-        for attempt in attempts:
-            attempt["_id"] = str(attempt["_id"])
-        
-        return attempts
+        return filings[:limit]
     
     async def get_filing_stats(
         self,
@@ -344,40 +287,25 @@ class FilingService:
         Returns:
             Dict with counts: total, completed, failed, pending
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
-        # Aggregate counts by status
-        pipeline = [
-            {"$match": {"user_id": user_id}},
-            {
-                "$group": {
-                    "_id": "$status",
-                    "count": {"$sum": 1}
-                }
+        user = await db.users.find_one({"phone": user_id})
+        if not user:
+            return {
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "pending": 0
             }
-        ]
         
-        results = await collection.aggregate(pipeline).to_list(length=None)
+        filings = user.get("filings", [])
         
-        # Build stats dict
         stats = {
-            "total": 0,
-            "completed": 0,
-            "failed": 0,
-            "pending": 0
+            "total": len(filings),
+            "completed": sum(1 for f in filings if f.get("status") == "completed"),
+            "failed": sum(1 for f in filings if f.get("status") == "failed"),
+            "pending": sum(1 for f in filings if f.get("status") not in ["completed", "failed"])
         }
-        
-        for result in results:
-            status = result["_id"]
-            count = result["count"]
-            stats["total"] += count
-            
-            if status == "completed":
-                stats["completed"] = count
-            elif status == "failed":
-                stats["failed"] = count
-            else:
-                stats["pending"] += count
         
         return stats
     
@@ -400,19 +328,25 @@ class FilingService:
         Returns:
             True if recent filing exists
         """
-        collection = await self._get_collection()
+        db = await self._get_db()
         
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
         
-        attempt = await collection.find_one({
-            "user_id": user_id,
-            "gstin": gstin,
-            "period": period,
-            "status": "completed",
-            "completed_at": {"$gte": cutoff_time}
-        })
+        user = await db.users.find_one({"phone": user_id})
+        if not user:
+            return False
         
-        return attempt is not None
+        filings = user.get("filings", [])
+        
+        for filing in filings:
+            if (filing.get("gstin") == gstin and 
+                filing.get("period") == period and
+                filing.get("status") == "completed" and
+                filing.get("completed_at") and
+                filing.get("completed_at") >= cutoff_time):
+                return True
+        
+        return False
 
 
 # Global service instance
