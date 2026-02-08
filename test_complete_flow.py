@@ -7,7 +7,8 @@ import requests
 import json
 from datetime import datetime
 
-BASE_URL = "http://localhost:8001/api/v1"
+# Use Railway production URL
+BASE_URL = "https://api-nileasy.up.railway.app/api/v1"
 
 def print_section(title):
     print("\n" + "=" * 80)
@@ -105,17 +106,20 @@ def main():
     print_section("STEP 3: Select GST Return Type")
     
     print("\nAvailable GST Types:")
-    print("  1. GSTR-3B (3B)")
-    print("  2. GSTR-1 (R1)")
+    print("  1. GSTR-3B (3B) - Monthly summary return")
+    print("  2. GSTR-1 (R1) - Outward supplies details")
+    print("  3. CMP-08 (C8) - Composition scheme quarterly return")
     
-    gst_type_choice = input("\nSelect type (1 or 2, or press Enter for 3B): ").strip()
+    gst_type_choice = input("\nSelect type (1, 2, or 3, or press Enter for 3B): ").strip()
     
     if gst_type_choice == "2":
         gst_type = "R1"
+    elif gst_type_choice == "3":
+        gst_type = "C8"
     else:
         gst_type = "3B"
     
-    print(f"\n✅ Selected: GSTR-{gst_type}")
+    print(f"\n✅ Selected: GSTR-{gst_type if gst_type != 'C8' else 'CMP-08 (C8)'}")
     
     # ============================================================================
     # STEP 4: Enter Period (MMYYYY)

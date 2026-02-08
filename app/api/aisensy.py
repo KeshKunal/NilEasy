@@ -37,7 +37,9 @@ from app.schemas.aisensy import (
 from app.services.gst_service import GSTService
 from app.services.sms_link_service import SMSLinkService
 from app.services.user_service import UserService
+from app.services.filing_service import FilingService
 from app.db.mongo import get_database
+from app.core.config import settings
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ router = APIRouter(prefix="/api/v1", tags=["AiSensy"])
 # Initialize services
 gst_service = GSTService()
 sms_service = SMSLinkService()
+filing_service = FilingService()
 
 # Rate limiting storage (in-memory for simplicity)
 # Production: Move to Redis with TTL
@@ -167,8 +170,9 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
                 error='Failed to fetch captcha from GST portal'
             )
         
-        # Build captcha URL using the captcha endpoint
-        captcha_url = f"http://localhost:8001/api/v1/captcha/{result['image']}"
+        # Build captcha URL using the captcha endpoint (use Railway URL in production)
+        base_url = settings.APP_URL.rstrip('/')
+        captcha_url = f"{base_url}/api/v1/captcha/{result['image']}"
         
         logger.info(f"Captcha fetched successfully for {gstin}")
         return ValidateGSTINResponse(
@@ -315,6 +319,18 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
         
         logger.info(f"SMS link generated successfully for {request.gstin}")
         
+        # Create filing attempt record for tracking
+        try:
+            await filing_service.create_filing_attempt(
+                phone=request.gstin,  # Using GSTIN as identifier for now
+                gstin=request.gstin,
+                gst_type=request.gst_type,
+                period=request.period,
+                sms_link=result['short_url']
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create filing attempt: {e}")
+        
         return GenerateSMSLinkResponse(
             success=True,
             sms_link=result['short_url'],  # Changed from 'sms_link' to 'short_url'
@@ -379,7 +395,16 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
             'timestamp': datetime.now()
         }
         
-        # Store in filings collection
+        # Update filing attempt status
+        await filing_service.update_filing_status(
+            phone=request.phone,
+            gstin=request.gstin,
+            period=request.period,
+            gst_type=request.gst_type,
+            status=request.status
+        )
+        
+        # Store in filings collection (immutable log)
         db = await get_database()
         await db.filings.insert_one(filing_data)
         
@@ -436,6 +461,75 @@ async def health_check() -> Dict[str, Any]:
             "validate-gstin": "POST /api/v1/validate-gstin",
             "verify-captcha": "POST /api/v1/verify-captcha",
             "generate-sms-link": "POST /api/v1/generate-sms-link",
-            "track-completion": "POST /api/v1/track-completion"
+            "track-completion": "POST /api/v1/track-completion",
+            "analytics": "GET /api/v1/analytics"
         }
     }
+
+
+# ============================================================================
+# Admin Analytics Endpoint (Optional - for monitoring)
+# ============================================================================
+
+@router.get("/analytics", tags=["Admin"])
+async def get_analytics() -> Dict[str, Any]:
+    \"\"\"
+    Get platform analytics for admin dashboard.
+    
+    **Note:** In production, protect this endpoint with authentication.
+    
+    Returns:
+        Comprehensive analytics including:
+        - Total users (registered, verified)
+        - Filing statistics (initiated, completed, failed)
+        - Completion rates
+        - Filing type breakdown (3B, R1, C8)
+        - Monthly trends
+    \"\"\"
+    try:
+        analytics = await filing_service.get_platform_analytics()
+        return {
+            "success": True,
+            "data": analytics,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.exception(f"Error generating analytics: {str(e)}\")
+        return {
+            "success": False,
+            "error": "Failed to generate analytics"
+        }
+
+
+# ============================================================================
+# Admin Analytics Endpoint (Optional - for monitoring)
+# ============================================================================
+
+@router.get("/analytics", tags=["Admin\"])
+async def get_analytics() -> Dict[str, Any]:
+    \"\"\"
+    Get platform analytics for admin dashboard.
+    
+    **Note:** In production, protect this endpoint with authentication.
+    
+    Returns:
+        Comprehensive analytics including:
+        - Total users (registered, verified)
+        - Filing statistics (initiated, completed, failed)
+        - Completion rates
+        - Filing type breakdown (3B, R1, C8)
+        - Monthly trends
+    \"\"\"
+    try:
+        analytics = await filing_service.get_platform_analytics()
+        return {
+            "success": True,
+            "data": analytics,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.exception(f"Error generating analytics: {str(e)}\")
+        return {
+            "success": False,
+            "error": "Failed to generate analytics"
+        }

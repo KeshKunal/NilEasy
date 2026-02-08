@@ -422,6 +422,129 @@ class FilingService:
         })
         
         return attempt is not None
+    
+    async def get_platform_analytics(self) -> Dict[str, Any]:
+        """
+        Get comprehensive platform analytics for admin dashboard.
+        
+        Returns:
+            Analytics dictionary with user counts, filing stats, and trends
+        """
+        from app.db.mongo import get_database
+        db = await get_database()
+        
+        # Get total unique users (from users collection)
+        total_users = await db.users.count_documents({})
+        
+        # Get users with GST data (verified users)
+        verified_users = await db.users.count_documents({"gst_data": {"$exists": True}})
+        
+        # Get filing attempts statistics
+        collection = await self._get_collection()
+        
+        total_attempts = await collection.count_documents({})
+        initiated_filings = await collection.count_documents({"status": "sms_link_generated"})
+        completed_filings = await collection.count_documents({"status": "completed"})
+        failed_filings = await collection.count_documents({"status": "failed"})
+        
+        # Calculate completion rate
+        completion_rate = (completed_filings / total_attempts * 100) if total_attempts > 0 else 0.0
+        
+        # Get filing type breakdown
+        pipeline = [
+            {"$group": {
+                "_id": "$gst_type",
+                "count": {"$sum": 1}
+            }}
+        ]
+        filing_types = {}
+        async for doc in collection.aggregate(pipeline):
+            filing_types[doc["_id"]] = doc["count"]
+        
+        # Get monthly filing trends (last 6 months)
+        from datetime import timedelta
+        six_months_ago = datetime.utcnow() - timedelta(days=180)
+        
+        monthly_pipeline = [
+            {"$match": {"created_at": {"$gte": six_months_ago}}},
+            {"$group": {
+                "_id": {
+                    "year": {"$year": "$created_at"},
+                    "month": {"$month": "$created_at"}
+                },
+                "count": {"$sum": 1},
+                "completed": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}
+                }
+            }},
+            {"$sort": {"_id.year": 1, "_id.month": 1}}
+        ]
+        
+        monthly_trends = []
+        async for doc in collection.aggregate(monthly_pipeline):
+            monthly_trends.append({
+                "month": f"{doc['_id']['year']}-{doc['_id']['month']:02d}",
+                "total": doc["count"],
+                "completed": doc["completed"]
+            })
+        
+        logger.info("Platform analytics generated")
+        
+        return {
+            "users": {
+                "total": total_users,
+                "verified": verified_users,
+                "unverified": total_users - verified_users
+            },
+            "filings": {
+                "total_attempts": total_attempts,
+                "initiated": initiated_filings,
+                "completed": completed_filings,
+                "failed": failed_filings,
+                "completion_rate": round(completion_rate, 2)
+            },
+            "filing_types": filing_types,
+            "monthly_trends": monthly_trends
+        }
+    
+    async def get_user_filing_history(
+        self,
+        phone: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Get complete filing history for a specific user.
+        
+        Args:
+            phone: User's phone number
+            limit: Maximum number of records to return
+        
+        Returns:
+            List of filing attempts with details
+        """
+        collection = await self._get_collection()
+        
+        cursor = collection.find(
+            {"phone": phone}
+        ).sort("created_at", -1).limit(limit)
+        
+        history = []
+        async for doc in cursor:
+            history.append({
+                "filing_id": str(doc["_id"]),
+                "gstin": doc.get("gstin"),
+                "gst_type": doc.get("gst_type"),
+                "period": doc.get("period"),
+                "status": doc.get("status"),
+                "business_name": doc.get("business_name"),
+                "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+                "completed_at": doc.get("completed_at").isoformat() if doc.get("completed_at") else None,
+                "arn": doc.get("arn"),
+                "retry_count": doc.get("retry_count", 0)
+            })
+        
+        logger.info(f"Retrieved {len(history)} filing records for {phone}")
+        return history
 
 
 # Global service instance

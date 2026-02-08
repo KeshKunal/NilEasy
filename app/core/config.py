@@ -59,12 +59,12 @@ class Settings(BaseSettings):
     
     # SMS Short Link Service
     SMS_SHORTLINK_API_URL: str = Field(
-        default="https://sm-snacc.vercel.app",
+        default="https://filing-sms.up.railway.app",
         description="SMS short link service URL"
     )
     APP_URL: str = Field(
-        default="http://localhost:8000",
-        description="Your FastAPI app base URL (for OTP callback redirects)"
+        default="https://api-nileasy.up.railway.app",
+        description="Your FastAPI app base URL (for captcha URLs and callbacks)"
     )
     
     # Session Management

@@ -1,7 +1,7 @@
 # NilEasy API Documentation
 
 **Version:** 1.0.0  
-**Base URL:** `http://localhost:8001` (Development) | `https://your-domain.com` (Production)  
+**Base URL:** `http://localhost:8001` (Development) | `https://api-nileasy.up.railway.app` (Production)  
 **API Prefix:** `/api/v1`
 
 ---
@@ -35,7 +35,7 @@ NilEasy provides a **stateless REST API** for GST Nil Filing automation via What
 
 - ✅ **Stateless Architecture** - No server-side session management
 - ✅ **Direct GST Portal Integration** - Real-time captcha and business details
-- ✅ **Smart GSTIN Cache** - Returns cached details instantly if GSTIN already verified
+- ✅ **Smart GSTIN Cache** - Returns cached details instantly if GSTIN already verified (no captcha!)
 - ✅ **Rate Limited** - 3 captcha attempts per GSTIN per hour
 - ✅ **Production Ready** - Comprehensive error handling and logging
 - ✅ **Pydantic Validation** - Automatic request/response validation
