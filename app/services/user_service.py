@@ -28,17 +28,6 @@ class UserService:
         self.db = db
         self.users = db.users
         self.filings = db.filings
-class UserService:
-    """
-    Enhanced user service for AiSensy integration.
-    Handles user creation, updates, and analytics tracking.
-    """
-    
-    def __init__(self, db: AsyncIOMotorDatabase):
-        """Initialize with database connection."""
-        self.db = db
-        self.users = db.users
-        self.filings = db.filings
     
     async def get_or_create_user(self, phone: str, name: str = None) -> Dict[str, Any]:
         """

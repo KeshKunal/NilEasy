@@ -423,6 +423,45 @@ class FilingService:
         
         return attempt is not None
     
+    async def validate_filing_period(self, gst_type: str, period: str) -> tuple[bool, str]:
+        """
+        Validate if the period is valid for the selected GST type.
+        
+        Rules:
+        - Format must be MMYYYY
+        - CMP-08 (C8) is quarterly: Month must be 03, 06, 09, 12
+        - Period cannot be in the future (simple check)
+        
+        Args:
+            gst_type: 3B, R1, or C8
+            period: MMYYYY string
+            
+        Returns:
+            (is_valid, error_message)
+        """
+        if len(period) != 6 or not period.isdigit():
+            return False, "Invalid period format. Use MMYYYY (e.g. 032026)."
+        
+        month = int(period[:2])
+        year = int(period[2:])
+        
+        if not (1 <= month <= 12):
+            return False, "Invalid month. Must be 01-12."
+        
+        current_date = datetime.now()
+        filing_date = datetime(year, month, 1)
+        
+        # Prevent future filing (allow current month for testing/early filing)
+        if filing_date > current_date:
+            return False, "Cannot file for future periods."
+            
+        # CMP-08 Specific Validation (Quarterly only)
+        if gst_type == 'C8':
+            if month not in [3, 6, 9, 12]:
+                return False, "CMP-08 is a quarterly return. Period month must be Mar(03), Jun(06), Sep(09), or Dec(12)."
+                
+        return True, ""
+
     async def get_platform_analytics(self) -> Dict[str, Any]:
         """
         Get comprehensive platform analytics for admin dashboard.

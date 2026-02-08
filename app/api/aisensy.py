@@ -298,6 +298,18 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
             f"Type: {request.gst_type}, Period: {request.period}"
         )
         
+        # Validate filing period logic (e.g. C8 quarterly Check)
+        is_valid_period, period_error = await filing_service.validate_filing_period(
+            request.gst_type, 
+            request.period
+        )
+        if not is_valid_period:
+            logger.warning(f"Invalid period for {request.gst_type}: {period_error}")
+            return GenerateSMSLinkResponse(
+                success=False,
+                error=period_error
+            )
+        
         # Format SMS text
         sms_text = f"NIL {request.gst_type} {request.gstin} {request.period}"
         
@@ -473,7 +485,7 @@ async def health_check() -> Dict[str, Any]:
 
 @router.get("/analytics", tags=["Admin"])
 async def get_analytics() -> Dict[str, Any]:
-    \"\"\"
+    """
     Get platform analytics for admin dashboard.
     
     **Note:** In production, protect this endpoint with authentication.
@@ -485,7 +497,7 @@ async def get_analytics() -> Dict[str, Any]:
         - Completion rates
         - Filing type breakdown (3B, R1, C8)
         - Monthly trends
-    \"\"\"
+    """
     try:
         analytics = await filing_service.get_platform_analytics()
         return {
@@ -494,41 +506,7 @@ async def get_analytics() -> Dict[str, Any]:
             "generated_at": datetime.now().isoformat()
         }
     except Exception as e:
-        logger.exception(f"Error generating analytics: {str(e)}\")
-        return {
-            "success": False,
-            "error": "Failed to generate analytics"
-        }
-
-
-# ============================================================================
-# Admin Analytics Endpoint (Optional - for monitoring)
-# ============================================================================
-
-@router.get("/analytics", tags=["Admin\"])
-async def get_analytics() -> Dict[str, Any]:
-    \"\"\"
-    Get platform analytics for admin dashboard.
-    
-    **Note:** In production, protect this endpoint with authentication.
-    
-    Returns:
-        Comprehensive analytics including:
-        - Total users (registered, verified)
-        - Filing statistics (initiated, completed, failed)
-        - Completion rates
-        - Filing type breakdown (3B, R1, C8)
-        - Monthly trends
-    \"\"\"
-    try:
-        analytics = await filing_service.get_platform_analytics()
-        return {
-            "success": True,
-            "data": analytics,
-            "generated_at": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.exception(f"Error generating analytics: {str(e)}\")
+        logger.exception(f"Error generating analytics: {str(e)}")
         return {
             "success": False,
             "error": "Failed to generate analytics"
