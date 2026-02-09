@@ -29,7 +29,7 @@ from app.schemas.aisensy import (
     ValidateGSTINResponse,
     VerifyCaptchaRequest,
     VerifyCaptchaResponse,
-    BusinessDetails,
+
     GenerateSMSLinkRequest,
     GenerateSMSLinkResponse,
     TrackCompletionRequest,
@@ -226,33 +226,27 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
                 error="Failed to fetch business details. Please try again."
             )
         
-        logger.info(f"Captcha verified successfully for {request.gstin}")
-        
-        # Build response with business details
-        business_details = BusinessDetails(
-            business_name=details.get('trade_name', 'N/A'),
-            legal_name=details.get('legal_name', 'N/A'),
-            address=details.get('address', 'N/A'),
-            registration_date=details.get('registration_date', 'N/A'),
-            status=details.get('status', 'N/A'),
-            gstin=request.gstin
-        )
-        
         # Save business details to user
         logger.info(f"Saving business details for GSTIN {request.gstin} to DB")
         user_service = await get_user_service()
         saved = await user_service.update_or_create_user(
             user_id=request.gstin,  # Using GSTIN as temp ID until phone is known
             gstin=request.gstin,
-            business_name=business_details.business_name,
-            address=business_details.address
+            business_name=details.get('trade_name', 'N/A'),
+            address=details.get('address', 'N/A')
         )
         logger.info(f"Business details saved: {saved}")
+
         
+        # Build response with business details directly at root
         return VerifyCaptchaResponse(
             success=True,
-            business_details=business_details,
-            # We don't send error here
+            business_name=details.get('trade_name', 'N/A'),
+            legal_name=details.get('legal_name', 'N/A'),
+            address=details.get('address', 'N/A'),
+            registration_date=details.get('registration_date', 'N/A'),
+            status=details.get('status', 'N/A'),
+            gstin=request.gstin
         )
         
     except Exception as e:

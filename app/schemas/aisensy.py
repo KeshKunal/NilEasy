@@ -68,7 +68,12 @@ class VerifyCaptchaResponse(BaseModel):
     """Response schema for captcha verification endpoint."""
     
     success: bool = Field(..., description="Whether verification succeeded")
-    business_details: Optional[BusinessDetails] = Field(default=None, description="Business details if successful")
+    business_name: Optional[str] = Field(default=None, description="Trade/Business name")
+    legal_name: Optional[str] = Field(default=None, description="Legal registered name")
+    address: Optional[str] = Field(default=None, description="Principal place of business address")
+    registration_date: Optional[str] = Field(default=None, description="GST registration date")
+    status: Optional[str] = Field(default=None, description="Active/Inactive status")
+    gstin: Optional[str] = Field(default=None, description="GSTIN")
     error: Optional[str] = Field(default=None, description="Error message if failed")
 
 
