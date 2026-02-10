@@ -31,12 +31,12 @@ async def create_indexes():
         # USERS COLLECTION INDEXES
         # ==============================================
         
-        # Unique index on phone (primary identifier)
+        # Index on phone (lookup attribute)
         try:
-            await users.create_index("phone", unique=True, sparse=True, name="phone_unique")
-            logger.info("✅ Created unique index on users.phone")
+            await users.create_index("phone", name="phone_idx", sparse=True)
+            logger.info("✅ Created index on users.phone")
         except Exception as e:
-            logger.debug(f"Index phone_unique already exists: {str(e)}")
+            logger.debug(f"Index phone_idx already exists: {str(e)}")
         
         # Index on GSTIN for quick lookups
         try:

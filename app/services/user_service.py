@@ -7,7 +7,7 @@ Purpose: User data management with unified schema
 - User retrieval and management
 - Filing tracking (embedded in user document)
 - Generated links tracking (embedded in user document)
-- Uses phone number as primary identifier
+- Uses phone number as a lookup attribute
 """
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -34,7 +34,7 @@ class UserService:
         Get existing user or create new one.
         
         Args:
-            phone: Phone number (primary identifier)
+            phone: Phone number (lookup attribute)
             name: User's display name (optional)
         
         Returns:
