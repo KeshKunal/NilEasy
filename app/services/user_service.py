@@ -116,8 +116,13 @@ class UserService:
         if last_updated_status:
             updates["last_updated_status"] = last_updated_status
         
-        # Determine query field (phone or gstin)
-        query = {"phone": user_id} if user_id.startswith("+") else {"gstin": user_id}
+        if last_updated_status:
+            updates["last_updated_status"] = last_updated_status
+        
+        # Determine query field
+        # GSTIN contains letters, Phone is typically digits (with optional +)
+        is_gstin_format = any(c.isalpha() for c in user_id)
+        query = {"gstin": user_id} if is_gstin_format else {"phone": user_id}
         
         # Update filing counters
         if last_filing_status == 'completed':

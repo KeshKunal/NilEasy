@@ -442,6 +442,9 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         if request.status == 'completed':
             updates["last_updated_status"] = "FILING DONE"
             
+        # Pass phone explicitly to ensure it updates/saves
+        updates["phone"] = request.phone
+            
         await user_service.update_or_create_user(**updates)
         
         logger.info(f"Filing tracked successfully for {request.phone}")
