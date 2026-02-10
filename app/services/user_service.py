@@ -83,7 +83,8 @@ class UserService:
         last_filing_status: str = None,
         business_name: str = None,
         address: str = None,
-        last_updated_status: str = None
+        last_updated_status: str = None,
+        phone: str = None
     ) -> bool:
         """
         Update existing user or create new one with analytics.
@@ -95,6 +96,7 @@ class UserService:
             business_name: Trade name
             address: Business address
             last_updated_status: Status of user journey
+            phone: Phone number to explicitly save
         
         Returns:
             True if successful
@@ -103,6 +105,8 @@ class UserService:
             "last_active": datetime.utcnow()
         }
         
+        if phone:
+            updates["phone"] = phone
         if gstin:
             updates["gstin"] = gstin
         if business_name:

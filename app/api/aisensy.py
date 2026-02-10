@@ -124,6 +124,7 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         await user_service.update_or_create_user(
             user_id=phone,
             gstin=gstin,
+            phone=phone,
             last_updated_status="Initiated"
         )
         
