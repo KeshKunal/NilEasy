@@ -117,7 +117,6 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
     """
     try:
         gstin = request.gstin
-<<<<<<< HEAD
         phone = request.phone
         logger.info(f"Validating GSTIN: {gstin} for Phone: {phone}")
 
@@ -130,9 +129,6 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
                 phone=phone,
                 last_updated_status="Initiated"
             )
-=======
-        logger.info(f"Validating GSTIN: {gstin}")
->>>>>>> parent of 7e0f062 (feat: Implement AiSensy API integration with new endpoints and Pydantic schemas for GSTIN validation, captcha verification, SMS link generation, and completion tracking.)
         
         # Check rate limiting
         is_allowed, error_msg = check_rate_limit(gstin)

@@ -19,13 +19,10 @@ class ValidateGSTINRequest(BaseModel):
         max_length=15,
         description="15-character GSTIN"
     )
-<<<<<<< HEAD
     phone: Optional[str] = Field(
         default=None,
         description="User's phone number"
     )
-=======
->>>>>>> parent of 7e0f062 (feat: Implement AiSensy API integration with new endpoints and Pydantic schemas for GSTIN validation, captcha verification, SMS link generation, and completion tracking.)
     
     @field_validator('gstin')
     @classmethod
