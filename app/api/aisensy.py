@@ -7,6 +7,7 @@ AiSensy Integration API Endpoints
 Production-grade stateless API endpoints for WhatsApp Flow Builder integration.
 These endpoints are called by AiSensy API Cards at specific validation points.
 
+
 Architecture:
 - No session state stored (stateless)
 - Each endpoint is independent
