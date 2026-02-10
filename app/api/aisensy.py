@@ -119,14 +119,15 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         phone = request.phone
         logger.info(f"Validating GSTIN: {gstin} for Phone: {phone}")
 
-        # Save phone number link to GSTIN immediately
-        user_service = await get_user_service()
-        await user_service.update_or_create_user(
-            user_id=phone,
-            gstin=gstin,
-            phone=phone,
-            last_updated_status="Initiated"
-        )
+        # Save phone number link to GSTIN immediately if phone is provided
+        if phone:
+            user_service = await get_user_service()
+            await user_service.update_or_create_user(
+                user_id=phone,
+                gstin=gstin,
+                phone=phone,
+                last_updated_status="Initiated"
+            )
         
         # Check rate limiting
         is_allowed, error_msg = check_rate_limit(gstin)

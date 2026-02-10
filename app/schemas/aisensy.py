@@ -19,8 +19,8 @@ class ValidateGSTINRequest(BaseModel):
         max_length=15,
         description="15-character GSTIN"
     )
-    phone: str = Field(
-        ...,
+    phone: Optional[str] = Field(
+        default=None,
         description="User's phone number"
     )
     
