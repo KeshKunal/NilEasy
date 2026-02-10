@@ -82,7 +82,8 @@ class UserService:
         gstin: str = None,
         last_filing_status: str = None,
         business_name: str = None,
-        address: str = None
+        address: str = None,
+        last_updated_status: str = None
     ) -> bool:
         """
         Update existing user or create new one with analytics.
@@ -93,6 +94,7 @@ class UserService:
             last_filing_status: 'completed' or 'failed'
             business_name: Trade name
             address: Business address
+            last_updated_status: Status of user journey
         
         Returns:
             True if successful
@@ -107,6 +109,8 @@ class UserService:
             updates["business_name"] = business_name
         if address:
             updates["address"] = address
+        if last_updated_status:
+            updates["last_updated_status"] = last_updated_status
         
         # Determine query field (phone or gstin)
         query = {"phone": user_id} if user_id.startswith("+") else {"gstin": user_id}

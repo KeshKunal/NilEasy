@@ -123,7 +123,8 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         user_service = await get_user_service()
         await user_service.update_or_create_user(
             user_id=phone,
-            gstin=gstin
+            gstin=gstin,
+            last_updated_status="Initiated"
         )
         
         # Check rate limiting
@@ -220,6 +221,15 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
         if not result['success']:
             error_msg = result.get('error', 'Invalid captcha or GSTIN verification failed')
             logger.warning(f"Captcha verification failed for {request.gstin}: {error_msg}")
+            
+            # Update status to "Verifying captcha" on failure
+            user_service = await get_user_service()
+            await user_service.update_or_create_user(
+                user_id=request.gstin,
+                gstin=request.gstin,
+                last_updated_status="Verifying captcha"
+            )
+            
             return VerifyCaptchaResponse(
                 success=False,
                 error=error_msg
@@ -241,7 +251,8 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
             user_id=request.gstin,  # Using GSTIN as temp ID until phone is known
             gstin=request.gstin,
             business_name=details.get('trade_name', 'N/A'),
-            address=details.get('address', 'N/A')
+            address=details.get('address', 'N/A'),
+            last_updated_status="Onboarded"
         )
         logger.info(f"Business details saved: {saved}")
 
@@ -311,6 +322,14 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
             gstin=request.gstin,
             gst_type=request.gst_type,
             period=request.period
+        )
+        
+        # Update status to "SMS GENERATED"
+        # We don't have phone here, so key by GSTIN
+        await user_service.update_or_create_user(
+            user_id=request.gstin,
+            gstin=request.gstin,
+            last_updated_status="SMS GENERATED"
         )
         
         # sms_link_service returns {"success": bool, "short_url": str, ...}
@@ -412,11 +431,17 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         )
         
         # Update user record (create if doesn't exist)
-        await user_service.update_or_create_user(
-            user_id=request.phone,
-            gstin=request.gstin,
-            last_filing_status=request.status
-        )
+        
+        updates = {
+             "user_id": request.phone,
+             "gstin": request.gstin,
+             "last_filing_status": request.status
+        }
+        
+        if request.status == 'completed':
+            updates["last_updated_status"] = "FILING DONE"
+            
+        await user_service.update_or_create_user(**updates)
         
         logger.info(f"Filing tracked successfully for {request.phone}")
         
