@@ -116,7 +116,15 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
     """
     try:
         gstin = request.gstin
-        logger.info(f"Validating GSTIN: {gstin}")
+        phone = request.phone
+        logger.info(f"Validating GSTIN: {gstin} for Phone: {phone}")
+
+        # Save phone number link to GSTIN immediately
+        user_service = await get_user_service()
+        await user_service.update_or_create_user(
+            user_id=phone,
+            gstin=gstin
+        )
         
         # Check rate limiting
         is_allowed, error_msg = check_rate_limit(gstin)

@@ -19,6 +19,10 @@ class ValidateGSTINRequest(BaseModel):
         max_length=15,
         description="15-character GSTIN"
     )
+    phone: str = Field(
+        ...,
+        description="User's phone number"
+    )
     
     @field_validator('gstin')
     @classmethod
