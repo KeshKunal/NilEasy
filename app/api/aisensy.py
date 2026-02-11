@@ -22,6 +22,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import Dict, Any
 import logging
+import secrets
+import string
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -175,7 +177,9 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
             )
         
         # Build captcha URL using the captcha endpoint
-        captcha_url = f"{settings.APP_URL}/api/v1/captcha/{result['image']}"
+        # Add a random fragment to prevent caching and ensure unique URL for client
+        random_fragment = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(6))
+        captcha_url = f"{settings.APP_URL}/api/v1/captcha/{result['image']}#{random_fragment}"
         
         logger.info(f"Captcha fetched successfully for {gstin}")
         return ValidateGSTINResponse(
