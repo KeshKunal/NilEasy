@@ -146,12 +146,14 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         
         if existing_user:
             logger.info(f"Found user for GSTIN {gstin}: {existing_user.get('_id')}")
-            if existing_user.get("business_name"):
-                logger.info(f"GSTIN found in database with business name: {existing_user.get('business_name')}")
+            biz_name = existing_user.get("business_name")
+            biz_address = existing_user.get("address")
+            if biz_name and biz_name != "N/A":
+                logger.info(f"GSTIN found in database with business name: {biz_name}")
                 return ValidateGSTINResponse(
                     valid="found",
-                    captcha_url=existing_user.get("business_name"),
-                    session_id=existing_user.get("address")
+                    captcha_url=biz_name,
+                    session_id=biz_address if biz_address and biz_address != "N/A" else None
                 )
             else:
                 logger.warning(f"User found for GSTIN {gstin} but no business_name present")
