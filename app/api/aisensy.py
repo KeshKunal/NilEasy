@@ -36,7 +36,7 @@ from app.schemas.aisensy import (
     TrackCompletionRequest,
     TrackCompletionResponse
 )
-from app.services.gst_service import GSTService
+from app.services.gst_service import GSTService, GSTServiceError
 from app.services.sms_link_service import SMSLinkService
 from app.services.user_service import UserService
 from app.db.mongo import get_database
@@ -182,6 +182,12 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
             session_id=result['session_id']
         )
         
+    except GSTServiceError as e:
+        logger.warning(f"GST service error in validate_gstin: {str(e)}")
+        return ValidateGSTINResponse(
+            valid=False,
+            error=str(e)
+        )
     except Exception as e:
         logger.exception(f"Unexpected error in validate_gstin: {str(e)}")
         return ValidateGSTINResponse(
@@ -271,6 +277,12 @@ async def verify_captcha(request: VerifyCaptchaRequest) -> VerifyCaptchaResponse
             gstin=request.gstin
         )
         
+    except GSTServiceError as e:
+        logger.warning(f"GST service error in verify_captcha: {str(e)}")
+        return VerifyCaptchaResponse(
+            success=False,
+            error=str(e)
+        )
     except Exception as e:
         logger.exception(f"Unexpected error in verify_captcha: {str(e)}")
         return VerifyCaptchaResponse(
