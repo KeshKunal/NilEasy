@@ -187,10 +187,11 @@ class GSTService:
                         raise GSTServiceError(f"Verification failed: {error_msg}")
                 
                 # Check if the response has any meaningful taxpayer data
-                # If key fields like lgnm (legal name) or tradeNam are missing, 
-                # the captcha/GSTIN verification likely failed silently
-                if not data.get("tradeNam") and not data.get("lgnm"):
-                    logger.warning(f"GST portal returned empty/invalid data for {gstin}: {data}")
+                # A valid GST response contains keys like tradeNam, lgnm, gstin, sts, pradr
+                # An error/invalid captcha response won't have any of these keys
+                taxpayer_keys = {"tradeNam", "lgnm", "gstin", "sts", "pradr"}
+                if not any(key in data for key in taxpayer_keys):
+                    logger.warning(f"GST portal returned no taxpayer data for {gstin}: {data}")
                     raise GSTServiceError("Verification failed. The captcha may be incorrect. Please try again.")
                 
                 # Extract business details
