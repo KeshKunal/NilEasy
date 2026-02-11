@@ -175,16 +175,23 @@ class GSTService:
                 logger.info(f"GST Portal Response: {data}")
                 
                 # Check for errors in response
-                if "error" in data or data.get("sts") == "E":
-                    error_msg = data.get("error", data.get("errorMsg", "Verification failed"))
+                if "error" in data or data.get("sts") == "E" or data.get("errorcd") or data.get("errorMsg"):
+                    error_msg = data.get("error", data.get("errorMsg", data.get("message", "Verification failed")))
                     logger.warning(f"GST portal error: {error_msg}")
                     
-                    if "captcha" in error_msg.lower() or "Invalid Captcha" in error_msg:
+                    if "captcha" in str(error_msg).lower() or "Invalid Captcha" in str(error_msg):
                         raise GSTServiceError("Incorrect captcha. Please try again.")
-                    elif "not found" in error_msg.lower() or "invalid gstin" in error_msg.lower():
+                    elif "not found" in str(error_msg).lower() or "invalid gstin" in str(error_msg).lower():
                         raise GSTServiceError("GSTIN not found in GST records. Please check and try again.")
                     else:
                         raise GSTServiceError(f"Verification failed: {error_msg}")
+                
+                # Check if the response has any meaningful taxpayer data
+                # If key fields like lgnm (legal name) or tradeNam are missing, 
+                # the captcha/GSTIN verification likely failed silently
+                if not data.get("tradeNam") and not data.get("lgnm"):
+                    logger.warning(f"GST portal returned empty/invalid data for {gstin}: {data}")
+                    raise GSTServiceError("Verification failed. The captcha may be incorrect. Please try again.")
                 
                 # Extract business details
                 business_details = self._extract_business_details(gstin, data)
