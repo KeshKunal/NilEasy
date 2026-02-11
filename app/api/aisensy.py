@@ -331,7 +331,7 @@ async def generate_sms_link(request: GenerateSMSLinkRequest) -> GenerateSMSLinkR
         # Generate deep link
         result = await sms_service.create_sms_deep_link(
             sms_text=sms_text,
-            phone_number="14409",  # GST filing number
+            phone_number=settings.GST_FILING_NUMBER,  # GST filing number
             user_phone=""  # Not needed for this flow
         )
         
