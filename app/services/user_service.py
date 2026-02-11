@@ -297,7 +297,7 @@ class UserService:
         }
         
         result = await self.users.update_one(
-            {"phone": phone},
+            {"gstin": gstin},
             {
                 "$push": {"filings": filing_doc},
                 "$set": {"last_active": datetime.utcnow()}

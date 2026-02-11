@@ -124,7 +124,7 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         if phone:
             user_service = await get_user_service()
             await user_service.update_or_create_user(
-                user_id=phone,
+                user_id=gstin,
                 gstin=gstin,
                 phone=phone,
                 last_updated_status="Initiated"
@@ -436,7 +436,7 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         # Update user record (create if doesn't exist)
         
         updates = {
-             "user_id": request.phone,
+             "user_id": request.gstin,
              "gstin": request.gstin,
              "last_filing_status": request.status
         }
