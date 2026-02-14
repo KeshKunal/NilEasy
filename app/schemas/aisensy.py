@@ -139,5 +139,6 @@ class TrackCompletionResponse(BaseModel):
     """Response schema for completion tracking endpoint."""
     
     tracked: bool = Field(..., description="Whether tracking succeeded")
+    status: Optional[bool] = Field(default=None, description="Operational status for flow control")
     message: Optional[str] = Field(default=None, description="Success message")
     error: Optional[str] = Field(default=None, description="Error message if failed")

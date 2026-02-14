@@ -179,7 +179,9 @@ async def validate_gstin(request: ValidateGSTINRequest) -> ValidateGSTINResponse
         # Build captcha URL using the captcha endpoint
         # Add a random fragment to prevent caching and ensure unique URL for client
         random_fragment = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(6))
-        captcha_url = f"{settings.APP_URL}/api/v1/captcha/{result['image']}#{random_fragment}"
+        # Strip trailing slash from APP_URL to prevent double slashes
+        base_url = settings.APP_URL.rstrip('/')
+        captcha_url = f"{base_url}/api/v1/captcha/{result['image']}#{random_fragment}"
         
         logger.info(f"Captcha fetched successfully for {gstin}")
         return ValidateGSTINResponse(
@@ -482,6 +484,7 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         
         return TrackCompletionResponse(
             tracked=True,
+            status=False if request.status == 'failed' else True,
             message=message
         )
         
@@ -489,6 +492,7 @@ async def track_completion(request: TrackCompletionRequest) -> TrackCompletionRe
         logger.exception(f"Unexpected error in track_completion: {str(e)}")
         return TrackCompletionResponse(
             tracked=False,
+            status=False,
             error="Failed to track completion. Your filing may still be successful."
         )
 
