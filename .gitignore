@@ -206,4 +206,10 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-*.md
+docs/
+DEPLOY_QUICK_START.md
+RAILWAY_DEPLOYMENT.md
+D:\Projects\NilEasy\test_complete_flow.py
+DB_SUMMARY.md
+DB_ANALYTICS_SUMMARY.md
+test_complete_flow.py

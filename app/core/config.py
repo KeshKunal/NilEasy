@@ -33,21 +33,7 @@ class Settings(BaseSettings):
         description="MongoDB database name"
     )
     
-    # Twilio (for testing)
-    TWILIO_ACCOUNT_SID: Optional[str] = Field(
-        default=None,
-        description="Twilio Account SID"
-    )
-    TWILIO_AUTH_TOKEN: Optional[str] = Field(
-        default=None,
-        description="Twilio Auth Token"
-    )
-    TWILIO_WHATSAPP_NUMBER: str = Field(
-        default="whatsapp:+14155238886",
-        description="Twilio WhatsApp Sandbox number"
-    )
-    
-    # WhatsApp/AiSensy (for production)
+    # WhatsApp/AiSensy
     AISENSY_API_KEY: Optional[str] = Field(
         default=None,
         description="AiSensy API key for WhatsApp integration"
@@ -73,12 +59,12 @@ class Settings(BaseSettings):
     
     # SMS Short Link Service
     SMS_SHORTLINK_API_URL: str = Field(
-        default="https://sm-snacc.vercel.app",
+        default="https://filing-sms.up.railway.app",
         description="SMS short link service URL"
     )
     APP_URL: str = Field(
-        default="http://localhost:8000",
-        description="Your FastAPI app base URL (for OTP callback redirects)"
+        default="https://api-nileasy.up.railway.app",
+        description="Your FastAPI app base URL (for captcha URLs and callbacks)"
     )
     
     # Session Management
@@ -137,20 +123,6 @@ class Settings(BaseSettings):
         description="Application secret key for encryption"
     )
     
-    @validator("SECRET_KEY")
-    def validate_secret_key(cls, v, values):
-        """Ensure secret key is changed in production."""
-        if values.get("ENVIRONMENT") == "production" and v == "change-me-in-production":
-            raise ValueError("SECRET_KEY must be changed in production environment")
-        return v
-    
-    @validator("AISENSY_API_KEY")
-    def validate_aisensy_key(cls, v, values):
-        """Ensure AiSensy key is set in production."""
-        if values.get("ENVIRONMENT") == "production" and not v:
-            raise ValueError("AISENSY_API_KEY is required in production environment")
-        return v
-    
     @property
     def is_development(self) -> bool:
         """Check if running in development mode."""
@@ -165,6 +137,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 # Global settings instance
@@ -181,17 +154,6 @@ def validate_settings():
     # Validate MongoDB URL
     if not settings.MONGODB_URL:
         errors.append("MONGODB_URL is required")
-    
-    # Validate GST service URL
-    if not settings.GST_SERVICE_URL:
-        errors.append("GST_SERVICE_URL is required")
-    
-    # Production-specific validations
-    if settings.is_production:
-        if not settings.AISENSY_API_KEY:
-            errors.append("AISENSY_API_KEY is required in production")
-        if not settings.AISENSY_WEBHOOK_SECRET:
-            errors.append("AISENSY_WEBHOOK_SECRET is required in production")
     
     if errors:
         raise ValueError(f"Configuration validation failed: {', '.join(errors)}")

@@ -1,108 +1,194 @@
 # NilEasy - WhatsApp-based GST Nil Filing Assistant
 
-An intelligent WhatsApp chatbot that guides users through the GST Nil filing process step-by-step.
+An intelligent WhatsApp chatbot that guides users through the GST Nil filing process via AiSensy Flow Builder integration.
+
+## 🚀 Quick Start
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your credentials
+
+# Run the server
+uvicorn app.main:app --reload --port 8001
+```
+
+Server will start at `http://localhost:8001`
+
+## 📋 Architecture Overview
+
+Stateless API endpoints for AiSensy Flow Builder  
+
+### AiSensy Integration Flow
+
+```
+WhatsApp → AiSensy Flow Builder → API Cards → Our Backend (4 endpoints)
+```
+
+### API Endpoints
+
+1. **POST /api/v1/validate-gstin** - Validate GSTIN & fetch captcha
+2. **POST /api/v1/verify-captcha** - Verify captcha & get business details
+3. **POST /api/v1/generate-sms-link** - Generate SMS deep link for filing
+4. **POST /api/v1/track-completion** - Track filing completion for analytics
+5. **GET /api/v1/health** - Health check endpoint
+
+📚 **Complete API Documentation:** [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
 ## Project Structure
+
 ```
 NilEasy/
 │
 ├── app/
-│   ├── main.py
+│   ├── main.py                  # FastAPI entry point
 │   │
 │   ├── api/
-│   │   └── webhook.py
-│   │
-│   ├── flow/
-│   │   ├── states.py
-│   │   ├── dispatcher.py
-│   │   └── handlers/
-│   │       ├── welcome.py
-│   │       ├── gstin.py
-│   │       ├── captcha.py
-│   │       ├── gst_type.py
-│   │       ├── duration.py
-│   │       ├── sms.py
-│   │       ├── otp.py
-│   │       └── completion.py
+│   │   └── aisensy.py          # 4 AiSensy API endpoints
 │   │
 │   ├── services/
-│   │   ├── user_service.py
-│   │   ├── session_service.py
-│   │   ├── gst_service.py
-│   │   ├── sms_service.py
-│   │   └── filing_service.py
-│   │
-│   ├── models/
-│   │   ├── user.py
-│   │   └── filing_attempt.py
+│   │   ├── user_service.py     # User & analytics management
+│   │   ├── gst_service.py      # GST portal integration
+│   │   └── sms_link_service.py # SMS shortlink generation
 │   │
 │   ├── schemas/
-│   │   ├── webhook.py
+│   │   ├── aisensy.py          # Pydantic request/response models
 │   │   └── user.py
 │   │
 │   ├── db/
-│   │   ├── mongo.py
-│   │   └── indexes.py
+│   │   ├── mongo.py            # MongoDB connection
+│   │   └── indexes.py          # Database indexes
 │   │
 │   └── core/
-│       ├── config.py
-│       └── logging.py
+│       ├── config.py           # Configuration
+│       └── logging.py          # Logging setup
 │
-├── utils/
-│   ├── whatsapp_utils.py
-│   ├── gst_utils.py
-│   ├── sms_utils.py
-│   ├── validation_utils.py
-│   ├── time_utils.py
-│   └── constants.py
-│
-├── tests/
-│
-├── .env.example
+├── utils/                       # Helper functions
+├── REFACTORING_GUIDE.md        # Complete API documentation
 ├── requirements.txt
 └── README.md
-
 ```
 
 ## Features
 
-- 🤖 Conversational GST filing via WhatsApp
-- ✅ GSTIN validation and verification
-- 📱 SMS-based OTP workflow
-- 🔄 State-managed conversation flow
-- 📊 Filing audit trail
-- 🛡️ Session management and validation
+- 🤖 **Stateless API Architecture** - No server-side sessions
+- ✅ **GSTIN Validation** - Format checking + GST portal verification
+- 🖼️ **Captcha Integration** - Direct GST portal captcha fetch
+- 📱 **SMS Deep Links** - Automated SMS link generation to 14409
+- 🔄 **Rate Limiting** - 3 captcha attempts per GSTIN per hour
+- 📊 **Analytics Tracking** - Filing success/failure metrics
+- 🛡️ **Production Ready** - Comprehensive error handling & logging
+
+## Core Flow
+
+1. User enters **GSTIN** → API validates format
+2. System fetches **Captcha** from GST portal
+3. User solves captcha → System fetches **Business Details**
+4. User confirms details → Selects **GST Type** (3B/R1) & **Period**
+5. System generates **SMS deep link** → User sends SMS to 14409
+6. User receives **OTP** → Sends confirmation SMS
+7. System tracks **completion** for analytics
 
 ## Setup
 
-1. Clone the repository
-2. Copy `.env.example` to `.env` and configure
-3. Install dependencies: `pip install -r requirements.txt`
-4. Run the application: `uvicorn app.main:app --reload`
+1. **Clone the repository**
+
+   ```bash
+   git clone <repository-url>
+   cd NilEasy
+   ```
+
+2. **Install dependencies**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure environment**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your MongoDB URI and other credentials
+   ```
+
+4. **Run the application**
+
+   ```bash
+   uvicorn app.main:app --reload --port 8001
+   ```
+
+5. **Test the API**
+   ```bash
+   curl http://localhost:8001/api/v1/health
+   ```
+
+## Environment Variables
+
+```env
+# MongoDB
+MONGODB_URL=mongodb+srv://...
+MONGODB_DB_NAME=zerofactorial
+
+# Application
+ENVIRONMENT=development
+DEBUG=True
+LOG_LEVEL=INFO
+
+# API Configuration
+API_PREFIX=/api/v1
+```
+
+## API Documentation
+
+For complete API documentation including:
+
+- Request/Response schemas
+- Authentication & Rate limiting
+- Error handling
+- Complete code examples in Python & cURL
+- Interactive testing guide
+
+Quick reference: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+
 
 ## Architecture
 
-This application follows a clean, modular architecture:
+This application follows a **stateless API architecture**:
 
-- **Flow Handlers**: Each conversation step has its own handler
-- **Services**: Business logic and external integrations
-- **Models**: MongoDB document structures
-- **Utils**: Reusable helper functions
+- **API Endpoints**: 4 independent endpoints for AiSensy Flow Builder
+- **Services**: Business logic and external integrations (GST portal, SMS)
+- **Database**: MongoDB with optimized indexes for analytics
+- **Utils**: Reusable validation and helper functions
 
-# GST Nil Filing via WhatsApp
+### Key Design Decisions
 
----
+1. **Stateless**: No server-side session management
+2. **Rate Limited**: Prevents GST portal abuse
+3. **Analytics First**: Track every filing attempt
+4. **Error Friendly**: HTTP 200 with success flags for easier AiSensy integration
+5. **Production Grade**: Comprehensive logging, error handling, and monitoring
 
-## Objective
+## Database Collections
 
-Build a **guided WhatsApp-based assistant** that helps GST taxpayers successfully file **Nil returns via SMS**, with minimal errors, using WhatsApp Business API (AiSensy) for structured interaction, validation, and follow-ups.
+### users
+
+- Primary key: `phone`
+- Tracks: GSTIN, business details, filing statistics
+
+### filings
+
+- Tracks: Each filing attempt with status (completed/failed)
+- Analytics: Success rates, period-wise filings
 
 ---
 
 ## Conversation Model
 
 > Single entry point + state-driven flow
-> 
+
 - No free-text commands
 - Mostly button/list-based inputs
 - Every message validated against `current_state`
@@ -119,10 +205,8 @@ Build a **guided WhatsApp-based assistant** that helps GST taxpayers successfull
 **Bot:**
 
 > 👋 Welcome to GST Nil Filing Assistant
-> 
-> 
+>
 > We’ll help you file your Nil return via the official SMS method.
-> 
 
 Button:
 
@@ -136,7 +220,6 @@ Button:
 **Text Input**
 
 > Please enter your 15-digit GSTIN
-> 
 
 Validation:
 
@@ -157,12 +240,10 @@ Backend:
 **Bot:**
 
 > 🔍 Please confirm your details:
-> 
-> 
-> Business Name: ___
-> 
-> State: ___
-> 
+>
+> Business Name: \_\_\_
+>
+> State: \_\_\_
 
 Buttons:
 
@@ -182,7 +263,7 @@ State → `GST_VERIFIED`
 - GSTR-1
 - GSTR-3B
 
-ℹ️ *Info option shows short explanation, then returns to list*
+ℹ️ _Info option shows short explanation, then returns to list_
 
 State → `ASK_GST_TYPE`
 
@@ -194,9 +275,7 @@ State → `ASK_GST_TYPE`
 
 - Monthly
 - Quarterly
-    
-    → Followed by **month / quarter selection**
-    
+  → Followed by **month / quarter selection**
 
 State → `ASK_DURATION`
 
@@ -213,7 +292,6 @@ Bot sends:
 **Bot:**
 
 > ⚠️ Send this SMS from your GST-registered mobile number only
-> 
 
 Buttons:
 
@@ -229,7 +307,6 @@ State → `SMS_SENT_WAIT`
 Bot:
 
 > ⏳ You’ll receive an OTP from GST within 30–120 seconds.
-> 
 
 Buttons:
 
@@ -272,15 +349,12 @@ On ARN confirmation:
 **Bot:**
 
 > 🎉 Your Nil Return has been filed successfully!
-> 
 
 Then soft promotion:
 
 > 💡 Need help with loans, compliance, or growth?
-> 
-> 
+>
 > Check out **ASPIRE** products designed for small businesses.
-> 
 
 Buttons:
 
@@ -289,31 +363,6 @@ Buttons:
 
 State → `COMPLETED`
 
----
-
-## AiSensy-Specific Work Breakdown
-
-### 🔧 Backend Team
-
-- Webhook handling
-- State management
-- GST APIs
-- SMS link generation
-- OTP parsing (optional)
-
-### 💬 WhatsApp / AiSensy Setup
-
-- Message templates approval
-- Button & list configurations
-- Session window handling (24-hour rule)
-- Fallback templates
-
-### 🧠 Product / UX
-
-- Exact wording of messages
-- Error & retry copy
-- Trust signals
-- Promotion placement
 
 ---
 
@@ -333,479 +382,3 @@ State → `COMPLETED`
 - We do **not** store OTP permanently
 - We only assist, guide, and format
 - Clear disclaimers at SMS steps
-
----
-
-## File Structure:
-
-```jsx
-NilEasy/
-│
-├── app/
-│   ├── [main.py](http://main.py/)
-│   │
-│   ├── api/
-│   │   └── [webhook.py](http://webhook.py/)
-│   │
-│   ├── flow/
-│   │   ├── [states.py](http://states.py/)
-│   │   ├── [dispatcher.py](http://dispatcher.py/)
-│   │   └── handlers/
-│   │       ├── [welcome.py](http://welcome.py/)
-│   │       ├── [gstin.py](http://gstin.py/)
-│   │       ├── [captcha.py](http://captcha.py/)
-│   │       ├── gst_type.py
-│   │       ├── [duration.py](http://duration.py/)
-│   │       ├── [sms.py](http://sms.py/)
-│   │       ├── [otp.py](http://otp.py/)
-│   │       └── [completion.py](http://completion.py/)
-│   │
-│   ├── services/
-│   │   ├── user_service.py
-│   │   ├── session_service.py
-│   │   ├── gst_service.py
-│   │   ├── sms_service.py
-│   │   └── filing_service.py
-│   │
-│   ├── models/
-│   │   ├── [user.py](http://user.py/)
-│   │   └── filing_attempt.py
-│   │
-│   ├── schemas/
-│   │   ├── [webhook.py](http://webhook.py/)
-│   │   └── [user.py](http://user.py/)
-│   │
-│   ├── db/
-│   │   ├── [mongo.py](http://mongo.py/)
-│   │   └── [indexes.py](http://indexes.py/)
-│   │
-│   └── core/
-│       ├── [config.py](http://config.py/)
-│       └── [logging.py](http://logging.py/)
-│
-├── utils/
-│   ├── whatsapp_utils.py
-│   ├── gst_utils.py
-│   ├── sms_utils.py
-│   ├── validation_utils.py
-│   ├── time_utils.py
-│   └── [constants.py](http://constants.py/)
-│
-├── tests/
-│
-├── .env.example
-├── requirements.txt
-└── [README.md](http://readme.md/)
-```
-
-# 📁 Description
-
----
-
-## 📁 app/
-
-Core application code.
-
-Contains all business logic, flow control, and integrations.
-
----
-
-### `app/main.py`
-
-**Purpose:** Application entry point
-
-- Initializes FastAPI app
-- Loads configuration and logging
-- Registers API routes (webhook)
-- No business logic should be written here
-
----
-
-## 📁 app/api/
-
-### `app/api/webhook.py`
-
-**Purpose:** Single WhatsApp webhook endpoint
-
-- Receives incoming WhatsApp/AiSensy events
-- Parses message payloads
-- Passes control to the flow dispatcher
-- Returns WhatsApp-compatible responses
-
----
-
-## 📁 app/flow/
-
-Handles **conversation flow and state transitions**.
-
-### `app/flow/states.py`
-
-**Purpose:** Defines all conversation states
-
-- Enum or constants for each step in the flow
-    
-    (WELCOME, ASK_GSTIN, GST_VERIFIED, OTP_RECEIVED, COMPLETED, etc.)
-    
-- Single source of truth for flow stages
-
----
-
-### `app/flow/dispatcher.py`
-
-**Purpose:** Central flow router
-
-- Reads the user’s `current_state`
-- Dispatches incoming input to the correct handler
-- Prevents invalid state transitions
-- Ensures users cannot skip steps
-
----
-
-### 📁 app/flow/handlers/
-
-Each file handles **exactly one step** in the chat flow.
-
----
-
-### `welcome.py`
-
-**Handles:** STEP 0 – Entry / Welcome
-
-- Processes “Hi” / CTA entry
-- Sends welcome message and start options
-- Initializes session state
-
----
-
-### `gstin.py`
-
-**Handles:** STEP 1 – Ask GSTIN
-
-- Accepts GSTIN input
-- Validates format (via utils)
-- Handles retry on invalid GSTIN
-- Stores GSTIN in temporary session data
-
----
-
-### `captcha.py`
-
-**Handles:** STEP 2 – Captcha & GST detail verification
-
-- Calls GST services using GSTIN + captcha
-- Displays extracted business details
-- Handles user confirmation or rejection
-- Rolls back to GSTIN step if rejected
-
----
-
-### `gst_type.py`
-
-**Handles:** STEP 3 – GST Return Type selection
-
-- Displays WhatsApp list (GSTR-1, GSTR-3B)
-- Handles info/help option
-- Saves selected return type
-
----
-
-### `duration.py`
-
-**Handles:** STEP 4 – Filing duration selection
-
-- Monthly / Quarterly selection
-- Month or quarter mapping
-- Normalizes period into GST-accepted format
-- Stores duration in session data
-
----
-
-### `sms.py`
-
-**Handles:** STEP 5 – SMS generation & confirmation
-
-- Generates exact GST SMS content
-- Creates deep link to messaging app
-- Displays warnings not to edit SMS
-- Tracks user confirmation of SMS sent
-
----
-
-### `otp.py`
-
-**Handles:** STEP 6 & 7 – OTP and confirmation
-
-- Handles OTP received / not received flows
-- Extracts OTP from pasted messages (optional)
-- Generates confirmation SMS format
-- Handles retries and troubleshooting paths
-
----
-
-### `completion.py`
-
-**Handles:** STEP 8 – Success & promotion
-
-- Confirms successful filing (ARN received)
-- Sends success message
-- Promotes Aspire products
-- Ends or resets the session
-
----
-
-## 📁 app/services/
-
-Contains **business logic and external integrations**.
-
-Handlers should call services; services never call handlers.
-
----
-
-### `user_service.py`
-
-**Purpose:** User data management
-
-- Create or update user records
-- Persist GSTIN and business details
-- Update user state and metadata
-
----
-
-### `session_service.py`
-
-**Purpose:** Session and state management
-
-- Updates `current_state`
-- Tracks last interaction time
-- Handles session expiry and reset logic
-- Enforces valid state transitions
-
----
-
-### `gst_service.py`
-
-**Purpose:** GST system integration
-
-- Handles GSTIN verification
-- Captcha handling
-- Fetches business details from GST APIs
-- Abstracts GST logic from flow handlers
-
----
-
-### `sms_service.py`
-
-**Purpose:** SMS workflow logic
-
-- Coordinates SMS generation steps
-- Tracks SMS send/confirmation lifecycle
-- Manages retries and failures
-
----
-
-### `filing_service.py`
-
-**Purpose:** Nil filing lifecycle management
-
-- Tracks filing attempts
-- Stores OTP/ARN timestamps
-- Updates filing status (initiated, confirmed, failed)
-- Provides auditability for compliance
-
----
-
-## 📁 app/models/
-
-Defines database document structures (MongoDB).
-
----
-
-### `user.py`
-
-**Purpose:** User document model
-
-- Telegram/WhatsApp ID
-- GSTIN and business details
-- Current state and session metadata
-- Temporary data and short-link info
-
----
-
-### `filing_attempt.py`
-
-**Purpose:** Filing audit model
-
-- Tracks each Nil filing attempt
-- Stores GST type, period, status
-- Records OTP and ARN timestamps
-- Used for retries, debugging, and analytics
-
----
-
-## 📁 app/schemas/
-
-Pydantic models for validation and serialization.
-
----
-
-### `webhook.py`
-
-**Purpose:** WhatsApp webhook payload schemas
-
-- Validates incoming AiSensy messages
-- Ensures predictable request handling
-
----
-
-### `user.py`
-
-**Purpose:** User-related request/response schemas
-
-- Used by services and handlers
-- Prevents invalid data propagation
-
----
-
-## 📁 app/db/
-
-Database configuration and setup.
-
----
-
-### `mongo.py`
-
-**Purpose:** MongoDB connection setup
-
-- Initializes Motor client
-- Exposes database and collections
-- Centralized DB access point
-
----
-
-### `indexes.py`
-
-**Purpose:** Database index management
-
-- Creates unique and performance indexes
-- Ensures fast lookups and data integrity
-
----
-
-## 📁 app/core/
-
-Core infrastructure configuration.
-
----
-
-### `config.py`
-
-**Purpose:** Application configuration
-
-- Loads environment variables
-- Centralizes config values (DB URI, secrets, etc.)
-
----
-
-### `logging.py`
-
-**Purpose:** Logging configuration
-
-- Standardizes log format
-- Controls log levels
-- Enables observability in production
-
----
-
-## 📁 utils/
-
-Shared stateless helper functions.
-
----
-
-### `whatsapp_utils.py`
-
-**Purpose:** WhatsApp message builders
-
-- Constructs button, list, and text payloads
-- Abstracts WhatsApp API formatting
-
----
-
-### `gst_utils.py`
-
-**Purpose:** GST-specific helpers
-
-- GSTIN formatting and normalization
-- Period formatting utilities
-
----
-
-### `sms_utils.py`
-
-**Purpose:** SMS formatting helpers
-
-- Builds exact GST-compliant SMS text
-- Generates deep links to messaging apps
-
----
-
-### `validation_utils.py`
-
-**Purpose:** Input validation
-
-- GSTIN regex
-- OTP parsing
-- Date and period validation
-
----
-
-### `time_utils.py`
-
-**Purpose:** Time and expiry helpers
-
-- Session TTL calculations
-- OTP expiry checks
-- Timestamp utilities
-
----
-
-### `constants.py`
-
-**Purpose:** Centralized static content
-
-- All user-facing messages
-- Button labels
-- Reusable enums and constants
-    
-    *(Prevents hardcoding across the codebase)*
-    
-
----
-
-## 📁 tests/
-
-**Purpose:** Automated testing
-
-- Unit tests for services and handlers
-- Integration tests for flow correctness
-- Regression protection
-
----
-
-## Root Files
-
-### `.env.example`
-
-- Template for environment variables
-- No secrets committed
-
-### `requirements.txt`
-
-- Python dependencies
-
-### `README.md`
-
-- Project overview
-- Setup instructions
-- Architecture explanation
-

@@ -33,51 +33,76 @@ class FilingService:
     
     async def create_filing_attempt(
         self,
-        user_id: str,
+        phone: str,
         gstin: str,
         gst_type: str,
-        period: str
+        period: str,
+        business_name: Optional[str] = None,
+        sms_link: Optional[str] = None
     ) -> str:
         """
-        Creates a new filing attempt record.
+        Creates filing attempt when SMS link is generated.
+        Uses upsert to prevent duplicate filings for same GSTIN/period.
         
         Args:
-            user_id: User ID
-            gstin: GSTIN
-            gst_type: GST type (regular/composition)
-            period: Filing period (MMYYYY format)
+            phone: User's phone number
+            gstin: 15-digit GSTIN
+            gst_type: "3B" or "R1"
+            period: MMYYYY format
+            business_name: Business name from captcha verification
+            sms_link: Generated SMS deep link
         
         Returns:
             Filing attempt ID
         """
         collection = await self._get_collection()
         
-        attempt_data = {
-            "user_id": user_id,
+        # Use upsert to avoid duplicates for same GSTIN/period
+        filter_query = {
+            "phone": phone,
             "gstin": gstin,
             "gst_type": gst_type,
-            "period": period,
-            "status": "initiated",
-            "created_at": datetime.utcnow(),
+            "period": period
+        }
+        
+        attempt_data = {
+            **filter_query,
+            "business_name": business_name,
+            "sms_link": sms_link,
+            "status": "sms_link_generated",
+            "sms_link_generated_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            "sms_sent_at": None,
-            "otp_received_at": None,
-            "otp_submitted_at": None,
             "completed_at": None,
             "arn": None,
             "error_message": None,
-            "retry_count": 0
         }
         
-        result = await collection.insert_one(attempt_data)
-        attempt_id = str(result.inserted_id)
+        # Set created_at only on insert
+        update_doc = {
+            "$set": attempt_data,
+            "$setOnInsert": {"created_at": datetime.utcnow(), "retry_count": 0}
+        }
+        
+        result = await collection.update_one(
+            filter_query,
+            update_doc,
+            upsert=True
+        )
+        
+        # Get the document ID
+        if result.upserted_id:
+            attempt_id = str(result.upserted_id)
+        else:
+            doc = await collection.find_one(filter_query)
+            attempt_id = str(doc["_id"])
         
         logger.info(
-            "Filing attempt created",
+            f"Filing attempt {'created' if result.upserted_id else 'updated'}",
             extra={
                 "attempt_id": attempt_id,
-                "user_id": user_id,
+                "phone": phone,
                 "gstin": gstin,
+                "gst_type": gst_type,
                 "period": period
             }
         )
@@ -86,20 +111,24 @@ class FilingService:
     
     async def update_filing_status(
         self,
-        user_id: str,
+        phone: str,
+        gstin: str,
+        period: str,
         status: str,
-        gstin: Optional[str] = None,
-        period: Optional[str] = None,
+        gst_type: Optional[str] = None,
+        arn: Optional[str] = None,
         error_message: Optional[str] = None
     ) -> bool:
         """
-        Updates the status of the latest filing attempt.
+        Updates filing status when user reports completion via track-completion endpoint.
         
         Args:
-            user_id: User ID
-            status: New status (sms_sent, otp_received, completed, failed)
-            gstin: Optional GSTIN filter
-            period: Optional period filter
+            phone: User's phone number
+            gstin: GSTIN
+            period: Filing period
+            status: "completed" or "failed"
+            gst_type: Optional GST type filter
+            arn: Optional ARN number (for successful filings)
             error_message: Optional error message for failures
         
         Returns:
@@ -108,11 +137,13 @@ class FilingService:
         collection = await self._get_collection()
         
         # Build query
-        query = {"user_id": user_id}
-        if gstin:
-            query["gstin"] = gstin
-        if period:
-            query["period"] = period
+        query = {
+            "phone": phone,
+            "gstin": gstin,
+            "period": period
+        }
+        if gst_type:
+            query["gst_type"] = gst_type
         
         # Find latest attempt
         attempt = await collection.find_one(
@@ -121,7 +152,10 @@ class FilingService:
         )
         
         if not attempt:
-            logger.warning(f"No filing attempt found for user {user_id}")
+            logger.warning(
+                f"No filing attempt found",
+                extra={"phone": phone, "gstin": gstin, "period": period}
+            )
             return False
         
         # Build update data
@@ -130,18 +164,14 @@ class FilingService:
             "updated_at": datetime.utcnow()
         }
         
-        # Add timestamp based on status
-        if status == "sms_sent":
-            update_data["sms_sent_at"] = datetime.utcnow()
-        elif status == "otp_received":
-            update_data["otp_received_at"] = datetime.utcnow()
-        elif status == "otp_submitted":
-            update_data["otp_submitted_at"] = datetime.utcnow()
-        elif status == "completed":
+        # Add completion timestamp and ARN for successful filings
+        if status == "completed":
             update_data["completed_at"] = datetime.utcnow()
-        
-        if error_message:
+            if arn:
+                update_data["arn"] = arn
+        elif status == "failed" and error_message:
             update_data["error_message"] = error_message
+            update_data["failed_at"] = datetime.utcnow()
         
         # Update
         result = await collection.update_one(
@@ -152,9 +182,10 @@ class FilingService:
         logger.info(
             f"Filing status updated to {status}",
             extra={
-                "user_id": user_id,
+                "phone": phone,
                 "attempt_id": str(attempt["_id"]),
-                "status": status
+                "status": status,
+                "gstin": gstin
             }
         )
         
@@ -162,87 +193,63 @@ class FilingService:
     
     async def store_arn(
         self,
-        user_id: str,
+        phone: str,
+        gstin: str,
+        period: str,
         arn: str,
-        gstin: Optional[str] = None,
-        period: Optional[str] = None
+        gst_type: Optional[str] = None
     ) -> bool:
         """
-        Stores ARN (Acknowledgement Reference Number) for a filing.
+        Stores ARN (Acknowledgement Reference Number) for a successful filing.
+        Called from track-completion endpoint.
         
         Args:
-            user_id: User ID
+            phone: User's phone number
+            gstin: GSTIN
+            period: Filing period  
             arn: ARN number
-            gstin: Optional GSTIN filter
-            period: Optional period filter
+            gst_type: Optional GST type filter
         
         Returns:
             True if stored successfully
         """
-        collection = await self._get_collection()
-        
-        query = {"user_id": user_id}
-        if gstin:
-            query["gstin"] = gstin
-        if period:
-            query["period"] = period
-        
-        # Find latest attempt
-        attempt = await collection.find_one(
-            query,
-            sort=[("created_at", -1)]
+        return await self.update_filing_status(
+            phone=phone,
+            gstin=gstin,
+            period=period,
+            status="completed",
+            gst_type=gst_type,
+            arn=arn
         )
-        
-        if not attempt:
-            return False
-        
-        # Update with ARN
-        result = await collection.update_one(
-            {"_id": attempt["_id"]},
-            {
-                "$set": {
-                    "arn": arn,
-                    "status": "completed",
-                    "completed_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        logger.info(
-            "ARN stored for filing",
-            extra={
-                "user_id": user_id,
-                "arn": arn
-            }
-        )
-        
-        return result.modified_count > 0
     
     async def increment_retry_count(
         self,
-        user_id: str,
-        gstin: Optional[str] = None,
-        period: Optional[str] = None
+        phone: str,
+        gstin: str,
+        period: str,
+        gst_type: Optional[str] = None
     ) -> int:
         """
-        Increments retry count for a filing attempt.
+        Increments retry count when user regenerates SMS link.
         
         Args:
-            user_id: User ID
-            gstin: Optional GSTIN filter
-            period: Optional period filter
+            phone: User's phone number
+            gstin: GSTIN
+            period: Filing period
+            gst_type: Optional GST type filter
         
         Returns:
             New retry count
         """
         collection = await self._get_collection()
         
-        query = {"user_id": user_id}
-        if gstin:
-            query["gstin"] = gstin
-        if period:
-            query["period"] = period
+        query = {
+            "phone": phone,
+            "gstin": gstin,
+            "period": period
+        }
+        if gst_type:
+            query["gst_type"] = gst_type
         
         # Find latest attempt
         attempt = await collection.find_one(
@@ -269,7 +276,7 @@ class FilingService:
     
     async def get_latest_filing_attempt(
         self,
-        user_id: str,
+        phone: str,
         gstin: Optional[str] = None,
         period: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
@@ -277,7 +284,7 @@ class FilingService:
         Gets the latest filing attempt for a user.
         
         Args:
-            user_id: User ID
+            phone: User's phone number
             gstin: Optional GSTIN filter
             period: Optional period filter
         
@@ -286,7 +293,7 @@ class FilingService:
         """
         collection = await self._get_collection()
         
-        query = {"user_id": user_id}
+        query = {"phone": phone}
         if gstin:
             query["gstin"] = gstin
         if period:
@@ -304,14 +311,14 @@ class FilingService:
     
     async def get_filing_history(
         self,
-        user_id: str,
+        phone: str,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
         Gets filing history for a user.
         
         Args:
-            user_id: User ID
+            phone: User's phone number
             limit: Maximum number of attempts to return
         
         Returns:
@@ -320,7 +327,7 @@ class FilingService:
         collection = await self._get_collection()
         
         cursor = collection.find(
-            {"user_id": user_id}
+            {"phone": phone}
         ).sort("created_at", -1).limit(limit)
         
         attempts = await cursor.to_list(length=limit)
@@ -333,13 +340,13 @@ class FilingService:
     
     async def get_filing_stats(
         self,
-        user_id: str
+        phone: str
     ) -> Dict[str, int]:
         """
         Gets filing statistics for a user.
         
         Args:
-            user_id: User ID
+            phone: User's phone number
         
         Returns:
             Dict with counts: total, completed, failed, pending
@@ -348,7 +355,7 @@ class FilingService:
         
         # Aggregate counts by status
         pipeline = [
-            {"$match": {"user_id": user_id}},
+            {"$match": {"phone": phone}},
             {
                 "$group": {
                     "_id": "$status",
@@ -383,16 +390,16 @@ class FilingService:
     
     async def check_recent_filing(
         self,
-        user_id: str,
+        phone: str,
         gstin: str,
         period: str,
         hours: int = 24
     ) -> bool:
         """
-        Checks if there's a recent successful filing.
+        Checks if there's a recent successful filing to prevent duplicates.
         
         Args:
-            user_id: User ID
+            phone: User's phone number
             gstin: GSTIN
             period: Period
             hours: Hours to look back
@@ -400,12 +407,14 @@ class FilingService:
         Returns:
             True if recent filing exists
         """
+        from datetime import timedelta
+        
         collection = await self._get_collection()
         
         cutoff_time = datetime.utcnow() - timedelta(hours=hours)
         
         attempt = await collection.find_one({
-            "user_id": user_id,
+            "phone": phone,
             "gstin": gstin,
             "period": period,
             "status": "completed",
@@ -413,6 +422,168 @@ class FilingService:
         })
         
         return attempt is not None
+    
+    async def validate_filing_period(self, gst_type: str, period: str) -> tuple[bool, str]:
+        """
+        Validate if the period is valid for the selected GST type.
+        
+        Rules:
+        - Format must be MMYYYY
+        - CMP-08 (C8) is quarterly: Month must be 03, 06, 09, 12
+        - Period cannot be in the future (simple check)
+        
+        Args:
+            gst_type: 3B, R1, or C8
+            period: MMYYYY string
+            
+        Returns:
+            (is_valid, error_message)
+        """
+        if len(period) != 6 or not period.isdigit():
+            return False, "Invalid period format. Use MMYYYY (e.g. 032026)."
+        
+        month = int(period[:2])
+        year = int(period[2:])
+        
+        if not (1 <= month <= 12):
+            return False, "Invalid month. Must be 01-12."
+        
+        current_date = datetime.now()
+        filing_date = datetime(year, month, 1)
+        
+        # Prevent future filing (allow current month for testing/early filing)
+        if filing_date > current_date:
+            return False, "Cannot file for future periods."
+            
+        # CMP-08 Specific Validation (Quarterly only)
+        if gst_type == 'C8':
+            if month not in [3, 6, 9, 12]:
+                return False, "CMP-08 is a quarterly return. Period month must be Mar(03), Jun(06), Sep(09), or Dec(12)."
+                
+        return True, ""
+
+    async def get_platform_analytics(self) -> Dict[str, Any]:
+        """
+        Get comprehensive platform analytics for admin dashboard.
+        
+        Returns:
+            Analytics dictionary with user counts, filing stats, and trends
+        """
+        from app.db.mongo import get_database
+        db = await get_database()
+        
+        # Get total unique users (from users collection)
+        total_users = await db.users.count_documents({})
+        
+        # Get users with GST data (verified users)
+        verified_users = await db.users.count_documents({"gst_data": {"$exists": True}})
+        
+        # Get filing attempts statistics
+        collection = await self._get_collection()
+        
+        total_attempts = await collection.count_documents({})
+        initiated_filings = await collection.count_documents({"status": "sms_link_generated"})
+        completed_filings = await collection.count_documents({"status": "completed"})
+        failed_filings = await collection.count_documents({"status": "failed"})
+        
+        # Calculate completion rate
+        completion_rate = (completed_filings / total_attempts * 100) if total_attempts > 0 else 0.0
+        
+        # Get filing type breakdown
+        pipeline = [
+            {"$group": {
+                "_id": "$gst_type",
+                "count": {"$sum": 1}
+            }}
+        ]
+        filing_types = {}
+        async for doc in collection.aggregate(pipeline):
+            filing_types[doc["_id"]] = doc["count"]
+        
+        # Get monthly filing trends (last 6 months)
+        from datetime import timedelta
+        six_months_ago = datetime.utcnow() - timedelta(days=180)
+        
+        monthly_pipeline = [
+            {"$match": {"created_at": {"$gte": six_months_ago}}},
+            {"$group": {
+                "_id": {
+                    "year": {"$year": "$created_at"},
+                    "month": {"$month": "$created_at"}
+                },
+                "count": {"$sum": 1},
+                "completed": {
+                    "$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}
+                }
+            }},
+            {"$sort": {"_id.year": 1, "_id.month": 1}}
+        ]
+        
+        monthly_trends = []
+        async for doc in collection.aggregate(monthly_pipeline):
+            monthly_trends.append({
+                "month": f"{doc['_id']['year']}-{doc['_id']['month']:02d}",
+                "total": doc["count"],
+                "completed": doc["completed"]
+            })
+        
+        logger.info("Platform analytics generated")
+        
+        return {
+            "users": {
+                "total": total_users,
+                "verified": verified_users,
+                "unverified": total_users - verified_users
+            },
+            "filings": {
+                "total_attempts": total_attempts,
+                "initiated": initiated_filings,
+                "completed": completed_filings,
+                "failed": failed_filings,
+                "completion_rate": round(completion_rate, 2)
+            },
+            "filing_types": filing_types,
+            "monthly_trends": monthly_trends
+        }
+    
+    async def get_user_filing_history(
+        self,
+        phone: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Get complete filing history for a specific user.
+        
+        Args:
+            phone: User's phone number
+            limit: Maximum number of records to return
+        
+        Returns:
+            List of filing attempts with details
+        """
+        collection = await self._get_collection()
+        
+        cursor = collection.find(
+            {"phone": phone}
+        ).sort("created_at", -1).limit(limit)
+        
+        history = []
+        async for doc in cursor:
+            history.append({
+                "filing_id": str(doc["_id"]),
+                "gstin": doc.get("gstin"),
+                "gst_type": doc.get("gst_type"),
+                "period": doc.get("period"),
+                "status": doc.get("status"),
+                "business_name": doc.get("business_name"),
+                "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None,
+                "completed_at": doc.get("completed_at").isoformat() if doc.get("completed_at") else None,
+                "arn": doc.get("arn"),
+                "retry_count": doc.get("retry_count", 0)
+            })
+        
+        logger.info(f"Retrieved {len(history)} filing records for {phone}")
+        return history
 
 
 # Global service instance

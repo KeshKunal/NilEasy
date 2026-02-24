@@ -116,7 +116,7 @@ async def check_database_health() -> bool:
         return False
 
 
-def get_database() -> AsyncIOMotorDatabase:
+async def get_database() -> AsyncIOMotorDatabase:
     """
     Returns the MongoDB database instance.
     
@@ -133,23 +133,23 @@ def get_database() -> AsyncIOMotorDatabase:
     return _database
 
 
-def get_users_collection():
+async def get_users_collection():
     """
     Returns the users collection (minimal schema).
     
     Fields: phone, name, gstin, business_name, gst_type, 
             current_state, session_data, created_at, last_active
     """
-    db = get_database()
+    db = await get_database()
     return db["users"]
 
 
-def get_filing_attempts_collection():
+async def get_filing_attempts_collection():
     """
     Returns the filing_attempts collection (minimal schema).
     
     Fields: phone, gstin, business_name, period, gst_type,
             status, arn, created_at, completed_at
     """
-    db = get_database()
+    db = await get_database()
     return db["filing_attempts"]
